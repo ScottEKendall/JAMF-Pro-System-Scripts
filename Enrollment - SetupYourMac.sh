@@ -2477,11 +2477,8 @@ dialogFailureCMD="$dialogBinary \
 --commandfile \"$failureCommandFile\" "
 
 
-
 #------------------------ With the execption of the `finalise` function, -------------------------#
 #------------------------ edits below these line are optional. -----------------------------------#
-
-
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Dynamically set `button1text` based on the value of `completionActionOption`
