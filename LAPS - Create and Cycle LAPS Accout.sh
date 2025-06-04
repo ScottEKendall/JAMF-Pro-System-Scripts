@@ -1,0 +1,530 @@
+#!/bin/bash
+#
+# Author  : Perry Driscoll - https://github.com/PezzaD84
+# Created : 31/1/2022
+# Updated : 2/10/2023
+# Version : v2.3.1
+#
+############################################################################
+# Description:
+#	This script is to create and encode, unique random credentials for a 
+#	local admin account. This same script is also used to cycle the encoded
+#	credentials.
+#
+############################################################################
+# Copyright © 2023 Perry Driscoll <https://github.com/PezzaD84>
+#
+# This file is free software and is shared "as is" without any warranty of 
+# any kind. The author gives unlimited permission to copy and/or distribute 
+# it, with or without modifications, as long as this notice is preserved. 
+# All usage is at your own risk and in no event shall the authors or 
+# copyright holders be liable for any claim, damages or other liability.
+############################################################################
+#
+# JAMF Script Variables
+# $4: Local Admin Username
+# $5: Encoded API Credentials
+# $6: JSS URL 
+# $7: Password Length
+# $8: Special Character (true or false)
+# $9: Slack WebHook URL
+# $10: Teams WebHook URL
+#
+############################################################################
+
+############################################################################
+# Debug Mode - Change to 1 if you wish to run the script in Debug mode
+############################################################################
+
+DEBUG="0"
+
+############################################################################
+# Variables
+############################################################################
+
+LAPSLOGDIR="/Library/Application Support/GiantEagle/logs"
+LAPSLOG="${LAPSLOGDIR}/LAPS.log"
+LAPSLOGFAILURES="${LAPSLOGDIR}/LAPS Failures.log"
+DEVICE=`hostname`
+serial=$(system_profiler SPHardwareDataType | awk '/Serial Number/{print $4}')
+LaunchDFile="/Library/LaunchDaemons/com.LAPS.triggerCycle.plist"
+
+############################################################################
+# API Credentials
+############################################################################
+
+encryptedcreds="$5"
+
+token=$(curl -s -H "Content-Type: application/json" -H "Authorization: Basic ${encryptedcreds}" -X POST "$6/api/v1/auth/token" | plutil -extract token raw -)
+
+############################################################################
+# Error checking
+############################################################################
+
+echo "Error checking any previous configuration....."
+
+if [ -f "${LAPSLOG}" ]; then
+	echo "Log found. Checking for previous failures....."
+	
+	FailCheck=$(cat "${LAPSLOG}" | grep -i fail)
+	
+	if [[ $FailCheck == "" ]]; then
+		echo "No previous failures detected. Continuing LAPS Configuration....."
+	else
+		echo "Previous Failures found. Please investigate existing log files to avoid any future failures."
+		echo "Cleaning up previous failed deployment....."
+		
+		############################################################################
+		# Extension Attribute Reset
+		############################################################################
+		
+		############################################################################
+		# Reset cryptkey
+		############################################################################
+		
+		echo "Resetting Encoded LAPS Password....."
+		
+		cryptID=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/ExtensionAttributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i CryptKey | tr ':' ' ' | tr ',' ' ' | awk '{print $2}')
+			
+			curl -s -X "PUT" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" \
+			-H "Content-Type: application/xml" \
+			-H "Accept: application/xml" \
+			-H "Authorization:Bearer ${token}" \
+			-d "<computer><extension_attributes><extension_attribute><id>$cryptID</id><name>LAPS CryptKey</name><type>String</type><value></value></extension_attribute></extension_attributes></computer>"
+			
+			############################################################################
+			# Reset secret
+			############################################################################
+			
+			echo "Resetting LAPS Secret key....."
+			
+			secretID=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/ExtensionAttributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i "LAPS Secret" | tr ':' ' ' | tr ',' ' ' | awk '{print $2}')
+				
+				curl -s -X "PUT" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" \
+				-H "Content-Type: application/xml" \
+				-H "Accept: application/xml" \
+				-H "Authorization:Bearer ${token}" \
+				-d "<computer><extension_attributes><extension_attribute><id>$secretID</id><name>LAPS Secret</name><type>String</type><value></value></extension_attribute></extension_attributes></computer>"
+					
+					############################################################################
+					# LAPS Account Removal
+					############################################################################
+					
+					if dscl . -list /Users | grep -x -i "$4"; then
+						echo "LAPS Account found. Removing account and associated files and folders now....."
+						
+						echo "Removing $4 from admin users group....."
+						dseditgroup -o edit -d $4 -t user admin
+						sleep 2
+						
+						echo "Removing $4 from the local device....."
+						dscl . -delete /Users/$4
+						sleep 2
+						
+						echo "Removing $4 files and folders....."
+						rm -rf /Users/$4
+						sleep 2
+						
+						stillExists=$(dscl . -list /Users | grep -x -i "$4")
+						
+						if [[ $stillExists == "" ]]; then
+							echo "Success - LAPS Account has been removed and reset."
+						fi
+					else
+						echo "LAPS Account not found. Moving on....."
+					fi
+					
+		echo "Creating new Log file and moving existing log file to failures folder."
+		sleep 1
+		mv "${LAPSLOG}" "${LAPSLOGFAILURES}"
+	fi
+else
+	echo "No previous log found. Starting initial setup....."
+fi
+
+############################################################################
+# Initial Setup
+############################################################################
+
+if [ -f "${LAPSLOG}" ]; then
+	echo "Log already exists. Continuing setup....."
+	echo -e "=================================================================
+============ LAPS Account cycled `date '+%Y-%m-%d %T'` ============
+=================================================================" | tee -a "${LAPSLOG}"
+else
+	# Check for existing duplicate admin accounts
+	LAPSaccount="$4"
+	echo "Checking for existing local admin account $LAPSaccount...."
+	
+	if dscl . -list /Users | grep -x -i "$LAPSaccount"; then
+		echo "Local admin account already exists with the same name. Please rename your LAPSaccount or delete the local admin account before configuring LAPS." | tee -a "${LAPSLOG}"
+		osascript -e 'Display dialog "An account with the same name pre-exists on this device.
+
+Please remove the existing local account or rename the LAPS account.
+
+Existing Account: '$LAPSaccount'" buttons {"Quit"} default button 1 with title "LAPS Setup failure" with icon alias "System:Library:CoreServices:CoreTypes.bundle:Contents:Resources:AlertStopIcon.icns"'
+		exit 1
+	fi
+	
+	echo "Log does not exist. Creating Log file now....."
+	mkdir -p "${LAPSLOGDIR}"
+	touch "${LAPSLOG}"
+	echo "LAPS Log created. Continuing setup....."
+	echo -e "=================================================================
+=========== LAPS Account creation `date '+%Y-%m-%d %T'` ===========
+=================================================================" | tee -a "${LAPSLOG}"
+fi
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE ENABLED-----" | tee -a "${LAPSLOG}"
+fi
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Bearer Token: $token" | tee -a "${LAPSLOG}"
+fi
+
+############################################################################
+# Random password to be used
+############################################################################
+
+length=$7
+
+echo "Password length has been set to $length characters" | tee -a "${LAPSLOG}"
+
+chars='@#$%&_+=!?'
+
+spchar=${chars:$((RANDOM % ${#chars})):1}
+
+specialchar=$8
+
+if $specialchar == true ; then
+	password=$(openssl rand -base64 32 | tr -d '/' | tr -d '\' | tr -d ' ' | cut -c -$length | cut -c 2-)
+	finalpass=$password$spchar
+	echo "A Special character has been set in the password" | tee -a "${LAPSLOG}"
+else
+	password=$(openssl rand -base64 32 | tr -d '/' | tr -d '\' | tr -d ' ' | cut -c -$length )
+	finalpass=$password
+fi
+
+############################################################################
+# Random Secret used to Encrypt and Decrypt password
+############################################################################
+
+secret=$(openssl rand -base64 32 | cut -c -14 | tr -d \/ | tr -d //)
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Secret Key: $secret" | tee -a "${LAPSLOG}"
+fi
+				
+############################################################################
+# Encode Random password
+############################################################################
+
+cryptkey=$(echo "$finalpass" | openssl enc -aes-256-cbc -md sha512 -a -salt -pass pass:$secret)
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Crypt Key: $cryptkey" | tee -a "${LAPSLOG}"
+fi
+				
+############################################################################
+# Create local admin
+############################################################################
+
+if dscl . list /Users | grep $4; then
+	echo "$4 has already been created and is a local admin. Resetting local admin password...." | tee -a "${LAPSLOG}"
+	
+	TITLE="LAPS Password Reset"
+	
+	############################################################################
+	# Reset local admin password
+	############################################################################
+	
+	ACTIVESESH=$(w | grep $4)
+	
+	if [[ $ACTIVESESH == "" ]]; then
+		echo "No active session for $4. Continuing to reset password" | tee -a "${LAPSLOG}"
+	else
+		echo "There is an active session running for $4. Password will be reset later." | tee -a "${LAPSLOG}"
+		exit 1
+	fi
+	
+	serial=$(system_profiler SPHardwareDataType | awk '/Serial Number/{print $4}')
+	OLDkey=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" -H 'Accept: application/json' -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep CryptKey | tr '"' ' ' | awk '{print $16}')
+	OLDsecret=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i "LAPS Secret" | tr '"' ' ' | awk '{print $16}')
+	OLDpasswd=$(echo $OLDkey | openssl enc -aes-256-cbc -md sha512 -a -d -salt -pass pass:$OLDsecret)
+	
+		if [[ $DEBUG == "1" ]]; then
+			echo "-----DEBUG MODE----- Serial Number: $serial" | tee -a "${LAPSLOG}"
+			echo "-----DEBUG MODE----- Old CryptKey: $OLDkey" | tee -a "${LAPSLOG}"
+			echo "-----DEBUG MODE----- Old Secret: $OLDsecret" | tee -a "${LAPSLOG}"
+		fi
+		
+		sysadminctl -adminUser $4 -adminPassword $OLDpasswd -resetPasswordFor $4 -newPassword $finalpass
+
+		pswdCheck=$(dscl /Local/Default -authonly $4 $finalpass)
+		if echo $pswdCheck | grep eDSAuthFailed; then
+		echo "Password validation failed." | tee -a "${LAPSLOG}"
+        exit 1
+		else
+		echo "Password validated" | tee -a "${LAPSLOG}"
+		fi
+        
+		rm -rf /Users/$4/Library/Keychains/*
+else
+	echo "$4 does not exist. Creating local admin now" | tee -a "${LAPSLOG}"
+	
+	TITLE="LAPS Account Created"
+
+############################################################################
+# Create LAPS Account
+############################################################################
+					
+sudo sysadminctl \
+-addUser $4 \
+-fullName $4 \
+-shell /bin/zsh \
+-password $finalpass \
+-admin
+
+sleep 5
+
+if dscl . read /Groups/admin | grep $4; then
+	echo "LAPS Account created Successfully" | tee -a "${LAPSLOG}"
+fi
+
+############################################################################
+# Create Setup Assistant suppress plist
+############################################################################
+					
+echo "<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>DidSeeAccessibility</key>
+<true/>
+<key>DidSeeAppearanceSetup</key>
+<true/>
+<key>DidSeePrivacy</key>
+<true/>
+<key>DidSeeScreenTime</key>
+<true/>
+<key>DidSeeAvatarSetup</key>
+<true/>
+<key>DidSeeCloudSetup</key>
+<true/>
+<key>DidSeeSiriSetup</key>
+<true/>
+<key>DidSeeTouchIDSetup</key>
+<true/>
+<key>DidSeeSyncSetup</key>
+<true/>
+<key>DidSeeSyncSetup2</key>
+<true/>
+<key>DidSeeCloudSetup</key>
+<true/>
+<key>DidSeeiCloudLoginForStorageServices</key>
+<true/>
+<key>DidSeeiCloudSecuritySetup</key>
+<true/>
+<key>GestureMovieSeen</key>
+<true/>
+<key>LastSeenBuddyBuildVersion</key>
+<string>21D62</string>
+<key>LastSeenCloudProductVersion</key>
+<string>12.2.1</string>
+</dict>
+</plist>" > /Users/$4/Library/Preferences/com.apple.SetupAssistant.plist
+
+############################################################################
+# Set pemissions on setup assistant plist
+############################################################################
+					
+chown $4: /Users/$4/Library/Preferences/com.apple.SetupAssistant.plist 
+chmod 644 /Users/$4/Library/Preferences/com.apple.SetupAssistant.plist
+
+fi
+
+############################################################################
+# Upload cryptkey to device inventory
+############################################################################
+					
+cryptID=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/ExtensionAttributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i CryptKey | tr ':' ' ' | tr ',' ' ' | awk '{print $2}')
+	
+	curl -s -X "PUT" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" \
+	-H "Content-Type: application/xml" \
+	-H "Accept: application/xml" \
+	-H "Authorization:Bearer ${token}" \
+	-d "<computer><extension_attributes><extension_attribute><id>$cryptID</id><name>LAPS CryptKey</name><type>String</type><value>$cryptkey</value></extension_attribute></extension_attributes></computer>"
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Crypt ExAtt ID: $cryptID" | tee -a "${LAPSLOG}"
+fi
+
+############################################################################
+# Upload secret to device inventory
+############################################################################
+	
+secretID=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/ExtensionAttributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i "LAPS Secret" | tr ':' ' ' | tr ',' ' ' | awk '{print $2}')
+	
+	curl -s -X "PUT" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" \
+	-H "Content-Type: application/xml" \
+	-H "Accept: application/xml" \
+	-H "Authorization:Bearer ${token}" \
+	-d "<computer><extension_attributes><extension_attribute><id>$secretID</id><name>LAPS Secret</name><type>String</type><value>$secret</value></extension_attribute></extension_attributes></computer>"
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Secret ExAtt ID: $secretID" | tee -a "${LAPSLOG}"
+fi
+	
+############################################################################
+# Check LAPS details have been escrowed to Jamf
+############################################################################	
+# Grab decryption key for password
+############################################################################
+	
+	cryptkey=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i CryptKey | awk -F '"value":"' '{print $2}' | awk -F '"' '{print $1}')
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Existing CryptKey in JAMF: $cryptkey" | tee -a "${LAPSLOG}"
+fi
+		
+############################################################################
+# Grab secret for decryption
+############################################################################
+		
+	secretkey=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i "LAPS Secret" | awk -F '"value":"' '{print $2}' | awk -F '"' '{print $1}')
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Existing SecretKey in JAMF: $secretkey" | tee -a "${LAPSLOG}"
+fi
+		
+	ID=$(curl -s -X GET "$6/JSSResource/computers/serialnumber/$serial" -H 'Accept: application/xml' -H "Authorization:Bearer ${token}" | tr '<' '
+' | grep -m 1 id | tr -d 'id>')	
+	echo "${ID}"
+	if [[ $cryptkey == "" ]] || [[ $secretkey == "" ]]; then
+
+		echo "Device serial is $serial" | tee -a "${LAPSLOG}"
+		echo "JAMF ID is ${ID}" | tee -a "${LAPSLOG}"
+		echo "LAPS Configuration has failed" | tee -a "${LAPSLOG}"
+		RESULT="There was an error. Please check LAPS log for more info."
+		if [[ $cryptkey == "" ]]; then
+			echo "Cryptkey has not been successfully configured" | tee -a "${LAPSLOG}"
+		fi
+		if [[ $secretkey == "" ]]; then
+			echo "SecretKey has not been successfully configured" | tee -a "${LAPSLOG}"
+		fi
+	else
+		echo "CryptKey and SecretKey Escrowed to Jamf successfully" | tee -a "${LAPSLOG}"
+		echo "Device serial is $serial" | tee -a "${LAPSLOG}"
+		echo "JAMF ID is $ID" | tee -a "${LAPSLOG}"
+		echo "LAPS Configuration was successful" | tee -a "${LAPSLOG}"
+		RESULT="LAPS Configuration was successful"
+	fi
+
+############################################################################
+# Slack Notification
+############################################################################
+		
+if [[ $9 == "" ]]; then
+	echo "No slack URL configured"
+else
+	curl -s -X POST -H 'Content-type: application/json' \
+	-d \
+	'{
+	"blocks": [
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "'"$TITLE"':closed_lock_with_key:",
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "section",
+			"fields": [
+				{
+					"type": "mrkdwn",
+					"text": ">*Device:*
+>'"$DEVICE"'"
+				},
+				{
+					"type": "mrkdwn",
+					"text": ">*LAPS Account name:*
+>'"$4"'"
+				},
+				{
+					"type": "mrkdwn",
+					"text": ">*LAPS Confirmation:*
+>'"$RESULT"'"
+				},
+			]
+		},
+	]
+}' \
+$9
+fi
+
+############################################################################
+# Teams Notification (Credit to https://github.com/nirvanaboi10 for the Teams code)
+############################################################################
+		
+	if [[ ${10} == "" ]]; then
+			echo "No Teams Webhook configured" | tee -a "${LAPSLOG}"
+	else
+			echo "Sending teams webhook" | tee -a "${LAPSLOG}"
+			jsonPayload='{
+	"@type": "MessageCard",
+	"@context": "http://schema.org/extensions",
+	"themeColor": "0076D7",
+	"summary": "LAPS account created/cycled",
+	"sections": [{
+		"activityTitle": "'"$TITLE"'",
+		"activityImage": "https://raw.githubusercontent.com/PezzaD84/macOSLAPS/main/Icons/lock%20icon.png",
+		"facts": [{
+			"name": "Device:",
+			"value": "'"$DEVICE"'"
+		},{
+			"name": "LAPS Account name:",
+			"value": "'"$4"'"
+		},{
+			"name": "LAPS Confirmation:",
+			"value": "'"$RESULT"'"
+		}],
+		"markdown": true
+	}]
+}'
+			curl -s -X POST -H "Content-Type: application/json" -d "$jsonPayload" "${10}"
+		fi
+		
+############################################################################	
+# Check Password reset LaunchD
+############################################################################
+	
+	if [ -f $LaunchDFile ]; then
+		echo "LAPS Launch Daemon found. Removing old Launch Daemon." | tee -a "${LAPSLOG}"
+	
+		rm -f $LaunchDFile
+		sleep 2
+	
+		echo "Launch Daemon removed." | tee -a "${LAPSLOG}"
+	
+		#Create the plist
+		defaults write $LaunchDFile Label -string "com.LAPS.triggerCycle.plist"
+	
+		#Set ownership
+		chown root:wheel $LaunchDFile
+		chmod 644 $LaunchDFile
+	else
+		echo "LAPS Launch Daemon not found" | tee -a "${LAPSLOG}"
+	fi
+exit 0

@@ -5,12 +5,16 @@
 # INCLUDING BUT NOT LIMITED TO DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE DAMAGES AND OTHER DAMAGES SUCH AS LOSS OF USE, PROFITS, SAVINGS, TIME OR DATA, BUSINESS INTERRUPTION, OR PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES.
 #get logged in user
 loggedInUser=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
+if [[ -z "$loggedInUser" ]]; then
+	echo "no logged in User"
+    exit 1
+fi
+
 #get user home directory
 userHome=$(dscl . read "/Users/$loggedInUser" NFSHomeDirectory | awk -F ' ' '{print $2}')
 #Check if wpj key is present
 WPJKey=$(su -l $loggedInUser -c "/usr/bin/security dump $userHome/Library/Keychains/login.keychain-db | grep MS-ORGANIZATION-ACCESS")
-if [ ! -z "$WPJKey" ]
-    then
+if [[ ! -z "$WPJKey" ]]; then
     #run gatherAADInfo
     su -l $loggedInUser -c "/Library/Application\ Support/JAMF/Jamf.app/Contents/MacOS/Jamf\ Conditional\ Access.app/Contents/MacOS/Jamf\ Conditional\ Access gatherAADInfo"
     exit 0

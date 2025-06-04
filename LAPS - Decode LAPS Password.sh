@@ -1,0 +1,436 @@
+#!/bin/bash
+#
+# Author  : Perry Driscoll - https://github.com/PezzaD84
+# Created : 31/1/2022
+# Updated : 18/7/2024
+# Version : v2.3.3
+#
+############################################################################
+# Description:
+#	This script is to decode the encoded LAPS password and display this
+#	to the end user/support engineer.
+#
+############################################################################
+# Copyright © 2023 Perry Driscoll <https://github.com/PezzaD84>
+#
+# This file is free software and is shared "as is" without any warranty of 
+# any kind. The author gives unlimited permission to copy and/or distribute 
+# it, with or without modifications, as long as this notice is preserved. 
+# All usage is at your own risk and in no event shall the authors or 
+# copyright holders be liable for any claim, damages or other liability.
+############################################################################
+#
+# JAMF Script Variables
+# $4: JSS URL
+# $5: Encoded API Credentials
+# $6: Time to trigger password cycle (in minutes)
+# $7: Slack WebHook URL
+# $8: Teams WebHook URL
+# $9: Service desk URL
+#
+############################################################################
+
+############################################################################
+# Debug Mode - Change to 1 if you wish to run the script in Debug mode
+############################################################################
+
+DEBUG="0"
+
+############################################################################
+# Variables
+############################################################################
+
+CURRENT_USER=$(ls -l /dev/console | awk '{ print $3 }')
+DEVICE=`hostname`
+LAPSLOGDIR="/Library/Application Support/GiantEagle/logs"
+LAPSLOG="${LAPSLOGDIR}/LAPS.log"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SERVICEDESK="$9"
+OS=$(sw_vers --productVersion | awk -F '.' '{print $1}')
+
+############################################################################
+# Create Log
+############################################################################
+
+if [ -f "$LAPSLOG" ]; then
+	echo "Log already exists. Continuing setup....."
+else
+	echo "Log does not exist. Creating Log now....."
+	mkdir -p "${LAPSLOGDIR}"
+	touch "$LAPSLOG" 
+fi
+
+echo -e "=================================================================
+================ LAPS Decoded `date '+%Y-%m-%d %T'` ================
+=================================================================" | tee -a "$LAPSLOG"
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE ENABLED-----" | tee -a "$LAPSLOG"
+fi
+
+##############################################################
+# Functions
+##############################################################
+
+DialogInstall()
+{
+	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+}
+
+##############################################################
+# Check if SwiftDialog is installed (SwiftDialog created by Bart Reardon https://github.com/bartreardon/swiftDialog)
+##############################################################
+
+if ! command -v dialog &> /dev/null
+then
+	echo "SwiftDialog is not installed. App will be installed now....." | tee -a "$LAPSLOG"
+	sleep 2
+	
+	DialogInstall
+	
+else
+	echo "SwiftDialog is installed. Checking installed version....." | tee -a "$LAPSLOG"
+	
+	installedVersion=$(dialog -v | sed 's/./ /6' | awk '{print $1}')
+	
+	latestVersion=$(curl -sfL "https://github.com/bartreardon/swiftDialog/releases/latest" | tr '"' "
+" | grep -i "expanded_assets" | head -1 | tr '/' ' ' | awk '{print $7}' | tr -d 'v' | awk -F '-' '{print $1}')	
+	
+	if [[ $installedVersion != $latestVersion ]]; then
+		echo "Dialog needs updating" | tee -a "$LAPSLOG"
+		DialogInstall
+	else
+		echo "Dialog is up to date. Continuing...." | tee -a "$LAPSLOG"
+	fi
+	sleep 3
+fi
+
+############################################################################
+# API Credentials
+############################################################################
+
+encryptedcreds="$5"
+	
+token=$(curl -s -H "Content-Type: application/json" -H "Authorization: Basic ${encryptedcreds}" -X POST "$4/api/v1/auth/token" | grep 'token' | tr -d '"',',' | sed -e 's#token :##' | xargs)
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Bearer Token: $token" | tee -a "$LAPSLOG"
+fi
+
+############################################################################
+# Pop up for Device name
+############################################################################
+
+message=$(dialog \
+--bannerimage "/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png" \
+--bannertitle "LAPS Password Recovery" \
+--titlefont shadow=1 \
+--title "none" \
+--icon "https://raw.githubusercontent.com/PezzaD84/macLAPS/main/Media/lock%20icon.png" --iconsize 100 \
+--message "Please enter the name or serial of the device you wish to see the LAPS password for. 
+
+ You must also provide a reason for viewing the LAPS Password for auditing." \
+--messagefont "name=Arial,size=17" \
+--textfield "Device,required" \
+--textfield "Reason,required" \
+--button1text "Continue" \
+--button2text "Quit" \
+--vieworder "dropdown,textfield" \
+--selecttitle "Serial or Hostname",required \
+--selectvalues "Serial Number,Hostname" \
+--selectdefault "Hostname" \
+--ontop \
+--height 400 \
+--json \
+--moveable
+)
+		
+DROPDOWN=$(echo $message | awk -F '"SelectedOption" : "' '{print$2}' | awk -F '"' '{print$1}')
+name=$(echo $message | awk -F '"Device" : "' '{print$2}' | awk -F '"' '{print$1}')
+reason=$(echo $message | awk -F '"Reason" : "' '{print$2}' | awk -F '"' '{print$1}') # Thanks to ons-mart https://github.com/ons-mart
+		
+if [[ $name == "" ]] || [[ $reason == "" ]]; then
+	echo "Aborting"
+	exit 1
+fi
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Device Type: $DROPDOWN" | tee -a "$LAPSLOG"
+	echo "-----DEBUG MODE----- Device name: $name" | tee -a "$LAPSLOG"
+	echo "-----DEBUG MODE----- Viewed Reason: $reason" | tee -a "$LAPSLOG"
+fi
+	
+if [[ $DROPDOWN == "Hostname" ]]; then 
+	echo "User selected Hostname"
+			
+	name2=$(echo $name | sed -e 's#’#%E2%80%99#g' -e 's# #%20#g')
+			
+	############################################################################
+	# Grab decoder key for password
+	############################################################################
+			
+	cryptkey=$(curl -s -X "GET" "$4/JSSResource/computers/name/$name2/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i CryptKey | tr '"' ' ' | awk '{print $16}')
+				
+	############################################################################			
+	# Grab secret for decoder
+	############################################################################
+				
+	secretkey=$(curl -s -X "GET" "$4/JSSResource/computers/name/$name2/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i "LAPS Secret" | tr '"' ' ' | awk '{print $16}')
+					
+else	
+	echo "User selected Serial Number"
+	
+	############################################################################
+	# Grab decoder key for password
+	############################################################################
+					
+	cryptkey=$(curl -s -X "GET" "$4/JSSResource/computers/serialnumber/$name/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i CryptKey | tr '"' ' ' | awk '{print $16}')
+					
+	############################################################################			
+	# Grab secret for decoder
+	############################################################################
+					
+	secretkey=$(curl -s -X "GET" "$4/JSSResource/computers/serialnumber/$name/subset/extension_attributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i "LAPS Secret" | tr '"' ' ' | awk '{print $16}')
+							
+fi
+
+if [[ $DEBUG == "1" ]]; then
+	echo "-----DEBUG MODE----- Existing CryptKey: $cryptkey" | tee -a "$LAPSLOG"
+	echo "-----DEBUG MODE----- Existing SecretKey: $secretkey" | tee -a "$LAPSLOG"
+fi
+
+############################################################################
+# Decode password and display
+############################################################################
+
+	if [[ $cryptkey == "" ]] || [[ $secretkey == "" ]]; then
+		echo "Aborting"
+		dialog \
+		--bannerimage "/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png" \
+		--bannertitle "LAPS Decoded Password" \
+        --titlefont shadow=1 \
+		--icon "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AlertStopIcon.icns" \
+		--message "Device inventory not found. 
+
+Please make sure the device name or serial is correct." \
+		--messagefont "name=Arial,size=17" \
+		--ontop \
+		--moveable \
+		--small
+		exit 1
+	fi
+	
+passwd=$(echo $cryptkey | openssl enc -aes-256-cbc -md sha512 -a -d -salt -pass pass:$secretkey)
+				
+dialog \
+--bannerimage "/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png" \
+--bannertitle "LAPS Decoded Password" \
+--titlefont shadow=1 \
+--icon "https://raw.githubusercontent.com/PezzaD84/macLAPS/main/Media/Open%20Lock%20Icon.png" --iconsize 100 \
+--message "The LAPS Password for $name is: **$passwd** 
+
+This password has also been put onto the clipboard.
+
+ This message will close after 10 seconds." \
+--messagefont "name=Arial,size=17" \
+--width 940 \
+--timer 10 \
+--ontop \
+--moveable \
+--small &
+
+echo "The LAPS Password for $name was viewed by $CURRENT_USER on $DEVICE" | tee -a "$LAPSLOG"
+echo "Reason for viewing password: $reason" | tee -a "$LAPSLOG"
+echo "$passwd" | xargs | pbcopy
+
+	############################################################################
+	# Final Decoder checks for password rotation
+	############################################################################
+	
+	cycleMins="$6"
+	
+	if [[ $6 == "" ]]; then
+		echo "Password rotation has not been set." | tee -a "$LAPSLOG"
+		HOUR="No"
+		MINUTE="Expiry"
+	else
+		cycleTime=$(date -v "+"$cycleMins"M" "+%m %d %H %M")
+		
+		MONTH=$(echo $cycleTime | awk '{print $1}')
+		if [[ $MONTH == "0"* ]]; then
+			MONTH=$(echo $MONTH | sed -e 's#0##')
+		fi
+		DAY=$(echo $cycleTime | awk '{print $2}')
+		if [[ $DAY == "0"* ]]; then
+			DAY=$(echo $DAY | sed -e 's#0##')
+		fi
+		HOUR=$(echo $cycleTime | awk '{print $3}')
+		MINUTE=$(echo $cycleTime | awk '{print $4}')
+		
+		echo "Password rotation has been set to $6 Minutes. LAPS Password for $name will be reset at $HOUR:$MINUTE." | tee -a "$LAPSLOG"
+		
+		############################################################################
+		# Create plist to Cycle Password
+		############################################################################
+		
+		plist="/Library/LaunchDaemons/com.LAPS.triggerCycle.plist"
+		
+		# Bootout old Launch Daemon
+		launchctl bootout system $plist
+		
+		#Create the plist
+		defaults write $plist Label -string "com.LAPS.triggerCycle.plist"
+		
+		#Add program argument to have it run the LAPS Policy
+		defaults write $plist ProgramArguments -array -string "/usr/local/bin/jamf" -string "policy" -string "-event" -string "createLAPS"
+		
+		#Set the run inverval to run at specified time
+		defaults write $plist StartCalendarInterval -dict Hour -int $HOUR Minute -int $MINUTE
+		
+		#Set run at load
+		defaults write $plist RunAtLoad -boolean no
+		
+		#Set User to run as
+		defaults write $plist UserName -string root
+		
+		#Set ownership
+		chown root:wheel $plist
+		chmod 644 $plist
+		
+		#Load the daemon
+		if (( $OS > 11 )); then
+			echo "OS version is Newer than OS11"
+			launchctl bootstrap system $plist
+		else
+			echo "OS Version is 11 or older"
+			launchctl load $plist
+		fi
+		
+		sleep 5
+		
+	fi
+		
+############################################################################
+# Slack notification
+############################################################################
+		
+		if [[ $7 == "" ]]; then
+			echo "No slack URL configured"
+		else
+			if [[ $SERVICEDESK == "" ]]; then
+				SERVICEDESK="https://www.slack.com"
+			fi
+			curl -s -X POST -H 'Content-type: application/json' \
+			-d \
+			'{
+	"blocks": [
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "LAPS Password Requested:closed_lock_with_key:",
+			}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "section",
+			"fields": [
+				{
+					"type": "mrkdwn",
+					"text": ">*Device:*
+>'"$name"'"
+				},
+				{
+					"type": "mrkdwn",
+					"text": ">*Requested by:*
+>'"$CURRENT_USER"' on '"$DEVICE"'"
+				},
+				{
+					"type": "mrkdwn",
+					"text": ">*Reason for Request:*
+>'"$reason"'"
+				},
+				{
+					"type": "mrkdwn",
+					"text": ">*Password will expire:*
+>'"$HOUR"':'"$MINUTE"'"
+				},
+			]
+		},
+		{
+		"type": "actions",
+			"elements": [
+				{
+					"type": "button",
+					"text": {
+						"type": "plain_text",
+						"text": "Challenge Request",
+						"emoji": true
+					},
+					"style": "danger",
+					"action_id": "actionId-0",
+					"url": "'"$SERVICEDESK"'"
+				}
+			]
+		}
+	]
+}' \
+			$7
+		fi
+
+############################################################################
+# Teams notification (Credit to https://github.com/nirvanaboi10 for the Teams code)
+############################################################################
+    
+if [[ $8 == "" ]]; then
+    echo "No teams Webhook configured" | tee -a "$LAPSLOG"
+else
+    if [[ $SERVICEDESK == "" ]]; then
+        SERVICEDESK="https://www.microsoft.com/en-us/microsoft-teams/"
+    fi
+    echo "Sending teams Webhook" | tee -a "$LAPSLOG"
+jsonPayload='{
+    "@type": "MessageCard",
+    "@context": "http://schema.org/extensions",
+    "themeColor": "0076D7",
+    "summary": "Admin has been used",
+    "sections": [{
+        "activityTitle": "LAPS Password Requested",
+        "activityImage": "https://raw.githubusercontent.com/PezzaD84/macLAPS/main/Icons/Open%20Lock%20Icon.png",
+		"facts": [{
+			"name": "Device:",
+			"value": "'"$name"'"
+		}, {
+            "name": "Requested by:",
+            "value": "'"$CURRENT_USER"' on '"$DEVICE"'"
+        }, {
+            "name": "Reason",
+            "value": "'"$reason"'"
+        }, {
+            "name": "Password will reset at:",
+            "value": "'"$HOUR"':'"$MINUTE"'"
+        }],
+        "markdown": true
+    }],
+    "potentialAction": [{
+        "@type": "OpenUri",
+        "name": "Challenge Request",
+        "targets": [{
+            "os": "default",
+            "uri":
+            "'"$SERVICEDESK"'"
+        }]
+    }]
+}'
+
+# Send the JSON payload using curl
+curl -s -X POST -H "Content-Type: application/json" -d "$jsonPayload" "$8"
+fi
+		
+exit 0

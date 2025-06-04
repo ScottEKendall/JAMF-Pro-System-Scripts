@@ -35,13 +35,12 @@ function logMe ()
     #
     # RETURN: None
     echo "${1}" 1>&2
-    echo "$(/bin/date '+%Y%m%d %H:%M:%S'): ${1}\n" >> "${LOG_FILE}"
+    echo "$(/bin/date '+%Y%m%d %H:%M:%S'): ${1}
+" >> "${LOG_FILE}"
 }
 
-allports=$(/usr/sbin/networksetup -listallnetworkservices | grep -i -E 'Ethernet|Wi-Fi|USB')
-for service in $allports
+/usr/sbin/networksetup -listallnetworkservices | grep -i -E 'Ethernet|Wi-Fi|USB' | while read service
 do
     /usr/sbin/networksetup -setv6off "$service"
-    logMe "INFO: IPv6 disabled on port $service"
 done
-exit 0
+logMe "INFO: IPv6 disabled on all interfaces"

@@ -97,7 +97,8 @@ Store Graphics Dept
 Work From Home (WFH)"
 
 # A sorted, unique, JSON-compatible list of buildings
-buildingsList=$( echo "${buildingsListRaw}" | tr ',' '\n' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
+buildingsList=$( echo "${buildingsListRaw}" | tr ',' '
+' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
 
 # [SYM-Helper] An unsorted, comma-separated list of departments (with possible duplication). If empty, this will be hidden from the user info prompt
 departmentListRaw="Engineering
@@ -108,7 +109,8 @@ Graphics
 Retail"
 
 # A sorted, unique, JSON-compatible list of departments
-departmentList=$( echo "${departmentListRaw}" | tr ',' '\n' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
+departmentList=$( echo "${departmentListRaw}" | tr ',' '
+' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
 
 # An unsorted, comma-separated list of departments (with possible duplication). If empty and promptForPosition is "true" a user-input box will be shown instead of a dropdown
 positionListRaw="Developer,Management,Sales,Marketing"
@@ -117,7 +119,8 @@ positionListRaw="Developer,Management,Sales,Marketing"
 emailEnding="@gianteagle.com"
 
 # A sorted, unique, JSON-compatible list of positions
-positionList=$( echo "${positionListRaw}" | tr ',' '\n' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
+positionList=$( echo "${positionListRaw}" | tr ',' '
+' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
 
 # [SYM-Helper] Branding overrides
 brandingBanner="/Library/Application Support/GiantEagle/Enrollment/RedBackground.jpg" # [Image by benzoix on Freepik](https://www.freepik.com/author/benzoix)
@@ -278,8 +281,8 @@ function runAsUser() {
 function calculateFreeDiskSpace() {
 
     freeSpace=$( diskutil info / | grep -E 'Free Space|Available Space|Container Free Space' | awk -F ":\s*" '{ print $2 }' | awk -F "(" '{ print $1 }' | xargs )
-    freeBytes=$( diskutil info / | grep -E 'Free Space|Available Space|Container Free Space' | awk -F "(\\\(| Bytes\\\))" '{ print $2 }' )
-    diskBytes=$( diskutil info / | grep -E 'Total Space' | awk -F "(\\\(| Bytes\\\))" '{ print $2 }' )
+    freeBytes=$( diskutil info / | grep -E 'Free Space|Available Space|Container Free Space' | awk -F "(\(| Bytes\))" '{ print $2 }' )
+    diskBytes=$( diskutil info / | grep -E 'Total Space' | awk -F "(\(| Bytes\))" '{ print $2 }' )
     freePercentage=$( echo "scale=2; ( $freeBytes * 100 ) / $diskBytes" | bc )
     diskSpace="$freeSpace free (${freePercentage}% available)"
 
@@ -366,43 +369,65 @@ function finalise(){
             dialogUpdateSetupYourMac "quit:"
             eval "${dialogFailureCMD}" & sleep 0.7
 
-            updateFailureDialog "\n\n# # #\n# FAILURE DIALOG\n# # #\n"
+            updateFailureDialog "
+
+# # #
+# FAILURE DIALOG
+# # #
+"
             updateFailureDialog "Jamf Pro Policy Name Failures:"
             updateFailureDialog "${jamfProPolicyNameFailures}"
 
-            failureMessage="A failure has been detected, ${loggedInUserFirstname}. \n\nPlease complete the following steps:\n1. Reboot and login to your ${modelName}  \n2. Login to Self Service  \n3. Re-run any failed policy listed below  \n\nThe following failed:  \n${jamfProPolicyNameFailures}"
+            failureMessage="A failure has been detected, ${loggedInUserFirstname}. 
+
+Please complete the following steps:
+1. Reboot and login to your ${modelName}  
+2. Login to Self Service  
+3. Re-run any failed policy listed below  
+
+The following failed:  
+${jamfProPolicyNameFailures}"
             
             if [[ -n "${supportTeamName}" ]]; then
 
-                supportContactMessage+="If you need assistance, please contact the **${supportTeamName}**:  \n"
+                supportContactMessage+="If you need assistance, please contact the **${supportTeamName}**:  
+"
 
                 if [[ -n "${supportTeamPhone}" ]]; then
-                    supportContactMessage+="- **Telephone:** ${supportTeamPhone}\n"
+                    supportContactMessage+="- **Telephone:** ${supportTeamPhone}
+"
                 fi
 
                 if [[ -n "${supportTeamEmail}" ]]; then
-                    supportContactMessage+="- **Email:** ${supportTeamEmail}\n"
+                    supportContactMessage+="- **Email:** ${supportTeamEmail}
+"
                 fi
                 
                 if [[ -n "${supportTeamChat}" ]]; then
-                    supportContactMessage+="- **Online Chat:** ${supportTeamChatHyperlink}\n"
+                    supportContactMessage+="- **Online Chat:** ${supportTeamChatHyperlink}
+"
                 fi
 
                 if [[ -n "${supportTeamWebsite}" ]]; then
-                    supportContactMessage+="- **Web**: ${supportTeamHyperlink}\n"
+                    supportContactMessage+="- **Web**: ${supportTeamHyperlink}
+"
                 fi
 
                 if [[ -n "${supportKB}" ]]; then
-                    supportContactMessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}\n"
+                    supportContactMessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}
+"
                 fi
                 
                 if [[ -n "${supportTeamHours}" ]]; then
-                    supportContactMessage+="- **Support Hours:** ${supportTeamHours}\n"
+                    supportContactMessage+="- **Support Hours:** ${supportTeamHours}
+"
                 fi
             
             fi
 
-            failureMessage+="\n\n${supportContactMessage}"
+            failureMessage+="
+
+${supportContactMessage}"
 
             dialogUpdateFailure "message: ${failureMessage}"
 
@@ -613,7 +638,8 @@ function validatePolicyResult() {
                 dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                 jamfProPolicyTriggerFailure="failed"
                 exitCode="1"
-                jamfProPolicyNameFailures+="• $listitem  \n"
+                jamfProPolicyNameFailures+="• $listitem  
+"
             fi
             ;;
 
@@ -643,7 +669,8 @@ function validatePolicyResult() {
                             dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                             jamfProPolicyTriggerFailure="failed"
                             exitCode="1"
-                            jamfProPolicyNameFailures+="• $listitem  \n"
+                            jamfProPolicyNameFailures+="• $listitem  
+"
                         fi
                     else
                         # Ineligible
@@ -672,7 +699,8 @@ function validatePolicyResult() {
                                 dialogUpdateSetupYourMac "listitem: index: $i, status: error, statustext: Unknown"
                                 jamfProPolicyTriggerFailure="failed"
                                 exitCode="1"
-                                jamfProPolicyNameFailures+="• $listitem  \n"
+                                jamfProPolicyNameFailures+="• $listitem  
+"
                                 ;;
                         esac
                     else
@@ -680,7 +708,8 @@ function validatePolicyResult() {
                         dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                         jamfProPolicyTriggerFailure="failed"
                         exitCode="1"
-                        jamfProPolicyNameFailures+="• $listitem  \n"
+                        jamfProPolicyNameFailures+="• $listitem  
+"
                     fi
                     ;;
                 sophosEndpointServices )
@@ -695,7 +724,8 @@ function validatePolicyResult() {
                                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                                     jamfProPolicyTriggerFailure="failed"
                                     exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
+                                    jamfProPolicyNameFailures+="• $listitem  
+"
                                     ;;
                                 "1" )
                                     updateSetupYourMacDialog "Locally Validate Policy Result: Sophos Endpoint RTS Status: Enabled"
@@ -706,7 +736,8 @@ function validatePolicyResult() {
                                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Unknown"
                                     jamfProPolicyTriggerFailure="failed"
                                     exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
+                                    jamfProPolicyNameFailures+="• $listitem  
+"
                                     ;;
                             esac
                         else
@@ -714,13 +745,15 @@ function validatePolicyResult() {
                             dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                             jamfProPolicyTriggerFailure="failed"
                             exitCode="1"
-                            jamfProPolicyNameFailures+="• $listitem  \n"
+                            jamfProPolicyNameFailures+="• $listitem  
+"
                         fi
                     else
                         dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                         jamfProPolicyTriggerFailure="failed"
                         exitCode="1"
-                        jamfProPolicyNameFailures+="• $listitem  \n"
+                        jamfProPolicyNameFailures+="• $listitem  
+"
                     fi
                     ;;
                 globalProtect )
@@ -741,14 +774,16 @@ function validatePolicyResult() {
                                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                                     jamfProPolicyTriggerFailure="failed"
                                     exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
+                                    jamfProPolicyNameFailures+="• $listitem  
+"
                                     ;;
                                 *  )
                                     updateSetupYourMacDialog "Locally Validate Policy Result: Palo Alto Networks GlobalProtect Status: Unknown"
                                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Unknown"
                                     jamfProPolicyTriggerFailure="failed"
                                     exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
+                                    jamfProPolicyNameFailures+="• $listitem  
+"
                                     ;;
                             esac
                         else
@@ -756,13 +791,15 @@ function validatePolicyResult() {
                             dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                             jamfProPolicyTriggerFailure="failed"
                             exitCode="1"
-                            jamfProPolicyNameFailures+="• $listitem  \n"
+                            jamfProPolicyNameFailures+="• $listitem  
+"
                         fi
                     else
                         dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                         jamfProPolicyTriggerFailure="failed"
                         exitCode="1"
-                        jamfProPolicyNameFailures+="• $listitem  \n"
+                        jamfProPolicyNameFailures+="• $listitem  
+"
                     fi
                     ;;
                 * )
@@ -770,7 +807,8 @@ function validatePolicyResult() {
                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Missing Local “${validation}” Validation"
                     jamfProPolicyTriggerFailure="failed"
                     exitCode="1"
-                    jamfProPolicyNameFailures+="• $listitem  \n"
+                    jamfProPolicyNameFailures+="• $listitem  
+"
                     ;;
             esac
             ;;
@@ -796,7 +834,8 @@ function validatePolicyResult() {
                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                     jamfProPolicyTriggerFailure="failed"
                     exitCode="1"
-                    jamfProPolicyNameFailures+="• $listitem  \n"
+                    jamfProPolicyNameFailures+="• $listitem  
+"
                 elif [[ "${result}" == *"Running"* ]]; then
                     dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Running"
                 elif [[ "${result}" == *"Installed"* || "${result}" == *"Success"*  ]]; then
@@ -805,7 +844,8 @@ function validatePolicyResult() {
                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Unknown"
                     jamfProPolicyTriggerFailure="failed"
                     exitCode="1"
-                    jamfProPolicyNameFailures+="• $listitem  \n"
+                    jamfProPolicyNameFailures+="• $listitem  
+"
                 fi
             fi
             ;;
@@ -888,7 +928,11 @@ function completionAction() {
     if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
 
         # If Debug Mode is enabled, ignore specified `completionActionOption`, display simple dialog box and exit
-        runAsUser osascript -e 'display dialog "Setup Your Mac is operating in Debug Mode.\r\r• completionActionOption == '"'${completionActionOption}'"'\r\r" with title "Setup Your Mac: Debug Mode" buttons {"Close"} with icon note'
+        runAsUser osascript -e 'display dialog "Setup Your Mac is operating in Debug Mode.
+
+• completionActionOption == '"'${completionActionOption}'"'
+
+" with title "Setup Your Mac: Debug Mode" buttons {"Close"} with icon note'
         exitCode="0"
 
     else
@@ -1098,18 +1142,36 @@ function checkNetworkQualityConfigurations() {
 
     configurationOneEstimatedSeconds=$( echo "scale=2; ((((( $configurationOneSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationOneInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
     welcomeDialog "Configuration One Estimated Seconds: $configurationOneEstimatedSeconds"
-    welcomeDialog "Configuration One Estimate: $(printf '%dh:%dm:%ds\n' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))"
+    welcomeDialog "Configuration One Estimate: $(printf '%dh:%dm:%ds
+' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))"
 
     configurationTwoEstimatedSeconds=$( echo "scale=2; ((((( $configurationTwoSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationTwoInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
     welcomeDialog "Configuration Two Estimated Seconds: $configurationTwoEstimatedSeconds"
-    welcomeDialog "Configuration Two Estimate: $(printf '%dh:%dm:%ds\n' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))"
+    welcomeDialog "Configuration Two Estimate: $(printf '%dh:%dm:%ds
+' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))"
 
     configurationThreeEstimatedSeconds=$( echo "scale=2; ((((( $configurationThreeSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationThreeInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
     welcomeDialog "Configuration Three Estimated Seconds: $configurationThreeEstimatedSeconds"
-    welcomeDialog "Configuration Three Estimate: $(printf '%dh:%dm:%ds\n' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
+    welcomeDialog "Configuration Three Estimate: $(printf '%dh:%dm:%ds
+' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
 
     welcomeDialog "Network Quality Test: Started: $dlStartDate, Ended: $dlEndDate; Download: $mbps Mbps, Responsiveness: $dlResponsiveness"
-    dialogUpdateWelcome "infobox: **Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimates:**  \n- ${configurationOneName}:  \n$(printf '%dh:%dm:%ds\n' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))  \n\n- ${configurationTwoName}:  \n$(printf '%dh:%dm:%ds\n' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))  \n\n- ${configurationThreeName}:  \n$(printf '%dh:%dm:%ds\n' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
+    dialogUpdateWelcome "infobox: **Connection:**  
+- Download:  
+$mbps Mbps  
+
+**Estimates:**  
+- ${configurationOneName}:  
+$(printf '%dh:%dm:%ds
+' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))  
+
+- ${configurationTwoName}:  
+$(printf '%dh:%dm:%ds
+' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))  
+
+- ${configurationThreeName}:  
+$(printf '%dh:%dm:%ds
+' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
 
     # If option to lock the continue button is set to true, enable the continue button now to let the user progress
     if [[ "${lockContinueBeforeEstimations}" == "true" ]]; then
@@ -1162,10 +1224,17 @@ function checkNetworkQualityCatchAllConfiguration() {
 
     configurationCatchAllEstimatedSeconds=$( echo "scale=2; ((((( $configurationCatchAllSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationCatchAllInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
     updateSetupYourMacDialog "Catch-all Configuration Estimated Seconds: $configurationCatchAllEstimatedSeconds"
-    updateSetupYourMacDialog "Catch-all Configuration Estimate: $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+    updateSetupYourMacDialog "Catch-all Configuration Estimate: $(printf '%dh:%dm:%ds
+' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
 
     updateSetupYourMacDialog "Network Quality Test: Started: $dlStartDate, Ended: $dlEndDate; Download: $mbps Mbps, Responsiveness: $dlResponsiveness"
-    dialogUpdateSetupYourMac "infobox: **Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimates:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+    dialogUpdateSetupYourMac "infobox: **Connection:**  
+- Download:  
+$mbps Mbps  
+
+**Estimates:**  
+- $(printf '%dh:%dm:%ds
+' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
     if [[ "${lockContinueBeforeEstimations}" == "true" ]]; then
         welcomeDialog "Enabling Continue Button"
         dialogUpdateWelcome "button1: enable"
@@ -1218,31 +1287,38 @@ function webHookMessage() {
                     "fields": [
                         {
                             "type": "mrkdwn",
-                            "text": "*Computer Name:*\n$( scutil --get ComputerName )"
+                            "text": "*Computer Name:*
+$( scutil --get ComputerName )"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": "*Serial:*\n${serialNumber}"
+                            "text": "*Serial:*
+${serialNumber}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": "*Timestamp:*\n${timestamp}"
+                            "text": "*Timestamp:*
+${timestamp}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": "*Configuration:*\n${symConfiguration}"
+                            "text": "*Configuration:*
+${symConfiguration}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": "*User:*\n${loggedInUser}"
+                            "text": "*User:*
+${loggedInUser}"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": "*OS Version:*\n${osVersion} (${osBuild})"
+                            "text": "*OS Version:*
+${osVersion} (${osBuild})"
                         },
                         {
                             "type": "mrkdwn",
-                            "text": "*Additional Comments:*\n${jamfProPolicyNameFailures}"
+                            "text": "*Additional Comments:*
+${jamfProPolicyNameFailures}"
                         }
                     ]
                 },
@@ -1436,7 +1512,9 @@ if [[ ! -f "${scriptLog}" ]]; then
     if [[ -f "${scriptLog}" ]]; then
         preFlight "Created specified scriptLog: ${scriptLog}"
     else
-        fatal "Unable to create specified scriptLog '${scriptLog}'; exiting.\n\n(Is this script running as 'root' ?)"
+        fatal "Unable to create specified scriptLog '${scriptLog}'; exiting.
+
+(Is this script running as 'root' ?)"
     fi
 else
     preFlight "Specified scriptLog '${scriptLog}' exists; writing log entries to it"
@@ -1459,7 +1537,13 @@ function currentLoggedInUser() {
 # Pre-flight Check: Logging Preamble
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-preFlight "\n\n###\n# $humanReadableScriptName (${scriptVersion})\n# https://snelson.us/sym\n###\n"
+preFlight "
+
+###
+# $humanReadableScriptName (${scriptVersion})
+# https://snelson.us/sym
+###
+"
 preFlight "Initiating …"
 
 
@@ -1562,7 +1646,11 @@ else
         # When the current `osBuild` is older than `requiredMinimumBuild`; exit with error
         else
             preFlight "The installed operating system, macOS ${osVersion} (${osBuild}), needs to be updated to Build ${requiredMinimumBuild}; exiting with error."
-            osascript -e 'display dialog "Please advise your Support Representative of the following error:\r\rExpected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').\r\r" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
+            osascript -e 'display dialog "Please advise your Support Representative of the following error:
+
+Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').
+
+" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
             preFlight "Executing /usr/bin/open '${outdatedOsAction}' …"
             su - "${loggedInUser}" -c "/usr/bin/open \"${outdatedOsAction}\""
             exit 1
@@ -1573,7 +1661,11 @@ else
     else
 
         preFlight "swiftDialog requires at least macOS 12 Monterey and this Mac is running ${osVersion} (${osBuild}), exiting with error."
-        osascript -e 'display dialog "Please advise your Support Representative of the following error:\r\rExpected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').\r\r" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
+        osascript -e 'display dialog "Please advise your Support Representative of the following error:
+
+Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').
+
+" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
         preFlight "Executing /usr/bin/open '${outdatedOsAction}' …"
         su - "${loggedInUser}" -c "/usr/bin/open \"${outdatedOsAction}\""
         exit 1
@@ -1606,7 +1698,8 @@ function acPowerCheck() {
     # Amount of time (in seconds) to allow a user to connect to AC power before exiting
     # If 0, then the user will not have the opportunity to connect to AC power
     acPowerWaitTimer="300"
-    humanReadablePowerWaitTimer=$(printf '%dh:%dm:%ds\n' $((acPowerWaitTimer/3600)) $((acPowerWaitTimer%3600/60)) $((acPowerWaitTimer%60)))
+    humanReadablePowerWaitTimer=$(printf '%dh:%dm:%ds
+' $((acPowerWaitTimer/3600)) $((acPowerWaitTimer%3600/60)) $((acPowerWaitTimer%60)))
 
     function waitForPower() {
 
@@ -1623,7 +1716,11 @@ function acPowerCheck() {
         done
         killProcess "osascript"
         preFlight "No AC power detected, exiting"
-        osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+        osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.
+
+Please connect AC power and try again.
+
+" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
         exit 1
 
     }
@@ -1641,13 +1738,23 @@ function acPowerCheck() {
 
         if [[ "$acPowerWaitTimer" -gt 0 ]]; then
 
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.\r\rPlease connect your computer to power using an AC power adapter.\r\rThis process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
+            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.
+
+Please connect your computer to power using an AC power adapter.
+
+This process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected.
+
+" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
             waitForPower
 
         else
 
             preFlight "No AC power detected, exiting"
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.
+
+Please connect AC power and try again.
+
+" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
             exit 1
 
         fi
@@ -1752,7 +1859,11 @@ function dialogInstall() {
     else
 
         # Display a so-called "simple" dialog if Team ID fails to validate
-        osascript -e 'display dialog "Please advise your Support Representative of the following error:\r\r• Dialog Team ID verification failed\r\r" with title "Setup Your Mac: Error" buttons {"Close"} with icon caution'
+        osascript -e 'display dialog "Please advise your Support Representative of the following error:
+
+• Dialog Team ID verification failed
+
+" with title "Setup Your Mac: Error" buttons {"Close"} with icon caution'
         completionActionOption="Quit"
         exitCode="1"
         quitScript
@@ -1886,50 +1997,70 @@ failureCommandFile=$( mktemp -u /var/tmp/dialogCommandFileFailure.XXX )
 # "Welcome" dialog Title, Message and Icon
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-welcomeTitle="Happy $( date +'%A' ), ${loggedInUserFirstname}!  \nWelcome to your new ${modelName}"
+welcomeTitle="Happy $( date +'%A' ), ${loggedInUserFirstname}!  
+Welcome to your new ${modelName}"
 
-welcomeMessage="Please enter the **required** information for your ${modelName}, select your preferred **Configuration** then click **Continue** to start applying settings to your new Mac. \n\nOnce completed, the **Wait** button will be enabled and you‘ll be able to review the results before restarting your ${modelName}."
+welcomeMessage="Please enter the **required** information for your ${modelName}, select your preferred **Configuration** then click **Continue** to start applying settings to your new Mac. 
+
+Once completed, the **Wait** button will be enabled and you‘ll be able to review the results before restarting your ${modelName}."
 
 if [[ -n "${supportTeamName}" ]]; then
 
-    welcomeMessage+="\n\nIf you need assistance, please contact the **${supportTeamName}**:  \n"
+    welcomeMessage+="
+
+If you need assistance, please contact the **${supportTeamName}**:  
+"
 
     if [[ -n "${supportTeamPhone}" ]]; then
-        welcomeMessage+="- **Telephone**: ${supportTeamPhone}\n"
+        welcomeMessage+="- **Telephone**: ${supportTeamPhone}
+"
     fi
 
     if [[ -n "${supportTeamEmail}" ]]; then
-        welcomeMessage+="- **Email**: ${supportTeamEmail}\n"
+        welcomeMessage+="- **Email**: ${supportTeamEmail}
+"
     fi
     
     if [[ -n "${supportTeamChat}" ]]; then
-        welcomeMessage+="- **Online Chat:** ${supportTeamChatHyperlink}\n"
+        welcomeMessage+="- **Online Chat:** ${supportTeamChatHyperlink}
+"
     fi
 
     if [[ -n "${supportTeamWebsite}" ]]; then
-        welcomeMessage+="- **Web**: ${supportTeamHyperlink}\n"
+        welcomeMessage+="- **Web**: ${supportTeamHyperlink}
+"
     fi
 
     if [[ -n "${supportKB}" ]]; then
-        welcomeMessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}\n"
+        welcomeMessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}
+"
     fi
 
     if [[ -n "${supportTeamHours}" ]]; then
-        welcomeMessage+="- **Support Hours:** ${supportTeamHours}\n"
+        welcomeMessage+="- **Support Hours:** ${supportTeamHours}
+"
     fi
     
 fi
 
-welcomeMessage+="\n\n---"
+welcomeMessage+="
+
+---"
 
 if { [[ "${promptForConfiguration}" == "true" ]] && [[ "${welcomeDialog}" != "messageOnly" ]]; } then
-    welcomeMessage+="  \n\n#### Configurations  \n- **${configurationOneName}:** ${configurationOneDescription}  \n- **${configurationTwoName}:** ${configurationTwoDescription}  \n- **${configurationThreeName}:** ${configurationThreeDescription}"
+    welcomeMessage+="  
+
+#### Configurations  
+- **${configurationOneName}:** ${configurationOneDescription}  
+- **${configurationTwoName}:** ${configurationTwoDescription}  
+- **${configurationThreeName}:** ${configurationThreeDescription}"
 else
     welcomeMessage=${welcomeMessage//", select your preferred **Configuration**"/}
 fi
 
 if [[ "${brandingBannerDisplayText}" == "true" ]]; then
-    welcomeBannerText="Happy $( date +'%A' ), ${loggedInUserFirstname}!  \nWelcome to your new ${modelName}"
+    welcomeBannerText="Happy $( date +'%A' ), ${loggedInUserFirstname}!  
+Welcome to your new ${modelName}"
 else
     welcomeBannerText=" "
 fi
@@ -2023,7 +2154,7 @@ if [ "$promptForEmail" == "true" ]; then
     emailJSON='{   "title" : "E-mail",
         "required" : true,
         "prompt" : "E-mail Address"'${emailPrefill}',
-        "regex" : "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+        "regex" : "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$",
         "regexerror" : "Please enter a valid email address."
     },'
 fi
@@ -2154,44 +2285,59 @@ else
 fi
 
 if [ -n "$supportTeamName" ]; then
-  helpmessage+="If you need assistance, please contact:  \n\n**${supportTeamName}**  \n"
+  helpmessage+="If you need assistance, please contact:  
+
+**${supportTeamName}**  
+"
 fi
 
 if [ -n "${supportTeamPhone}" ]; then
-  helpmessage+="- **Telephone:** ${supportTeamPhone}  \n"
+  helpmessage+="- **Telephone:** ${supportTeamPhone}  
+"
 fi
 
 if [ -n "${supportTeamEmail}" ]; then
-  helpmessage+="- **Email:** ${supportTeamEmail}  \n"
+  helpmessage+="- **Email:** ${supportTeamEmail}  
+"
 fi
     
 if [ -n "${supportTeamChat}" ]; then
-  helpmessage+="- **Online Chat:** ${supportTeamChatHyperlink}  \n"
+  helpmessage+="- **Online Chat:** ${supportTeamChatHyperlink}  
+"
 fi
 
 if [ -n "${supportTeamWebsite}" ]; then
-  helpmessage+="- **Web**: ${supportTeamHyperlink}  \n"
+  helpmessage+="- **Web**: ${supportTeamHyperlink}  
+"
 fi
         
 if [ -n "${supportKB}" ]; then
-  helpmessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}  \n"
+  helpmessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}  
+"
 fi
             
 if [ -n "${supportTeamHours}" ]; then
-  helpmessage+="- **Support Hours:** ${supportTeamHours}  \n"
+  helpmessage+="- **Support Hours:** ${supportTeamHours}  
+"
 fi
 
-helpmessage+="\n**Computer Information:**  \n"
-helpmessage+="- **Operating System:** ${macOSproductVersion} (${macOSbuildVersion})  \n"
-helpmessage+="- **Serial Number:** ${serialNumber}  \n"
-helpmessage+="- **Dialog:** ${dialogVersion}  \n"
+helpmessage+="
+**Computer Information:**  
+"
+helpmessage+="- **Operating System:** ${macOSproductVersion} (${macOSbuildVersion})  
+"
+helpmessage+="- **Serial Number:** ${serialNumber}  
+"
+helpmessage+="- **Dialog:** ${dialogVersion}  
+"
 helpmessage+="- **Started:** ${timestamp}"
 
 infobox="Analyzing input …" # Customize at "Update Setup Your Mac's infobox"
 
 
 # Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
-xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
+xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'
+'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
 overlayicon="/var/tmp/overlayicon.icns"
 
 # Uncomment to use generic, Self Service icon as overlayicon
@@ -2477,8 +2623,11 @@ dialogFailureCMD="$dialogBinary \
 --commandfile \"$failureCommandFile\" "
 
 
+
 #------------------------ With the execption of the `finalise` function, -------------------------#
 #------------------------ edits below these line are optional. -----------------------------------#
+
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Dynamically set `button1text` based on the value of `completionActionOption`
@@ -2546,7 +2695,12 @@ esac
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
-    updateScriptLog "\n\n###\n# ${scriptVersion}\n###\n"
+    updateScriptLog "
+
+###
+# ${scriptVersion}
+###
+"
 fi
 
 
@@ -2990,9 +3144,21 @@ if [[ "${symConfiguration}" == *"Catch-all"* ]] || [[ -z "${symConfiguration}" ]
 
         checkNetworkQualityCatchAllConfiguration &
 
-        updateSetupYourMacDialog "**Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimate:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+        updateSetupYourMacDialog "**Connection:**  
+- Download:  
+$mbps Mbps  
 
-        infoboxConfiguration="**Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimate:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+**Estimate:**  
+- $(printf '%dh:%dm:%ds
+' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+
+        infoboxConfiguration="**Connection:**  
+- Download:  
+$mbps Mbps  
+
+**Estimate:**  
+- $(printf '%dh:%dm:%ds
+' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
 
     else
 
@@ -3009,15 +3175,42 @@ fi
 
 infobox=""
 
-if [[ -n ${comment} ]]; then infobox+="**Comment:**  \n$comment  \n\n" ; fi
-if [[ -n ${computerName} ]]; then infobox+="**Computer Name:**  \n$computerName  \n\n" ; fi
-if [[ -n ${userName} ]]; then infobox+="**Username:**  \n$userName  \n\n" ; fi
-if [[ -n ${assetTag} ]]; then infobox+="**Asset Tag:**  \n$assetTag  \n\n" ; fi
-if [[ -n ${infoboxConfiguration} ]]; then infobox+="**Configuration:**  \n$infoboxConfiguration  \n\n" ; fi
-if [[ -n ${department} ]]; then infobox+="**Department:**  \n$department  \n\n" ; fi
-if [[ -n ${building} ]]; then infobox+="**Building:**  \n$building  \n\n" ; fi
-if [[ -n ${room} ]]; then infobox+="**Room:**  \n$room  \n\n" ; fi
-if [[ -n ${position} ]]; then infobox+="**Position:**  \n$position  \n\n" ; fi
+if [[ -n ${comment} ]]; then infobox+="**Comment:**  
+$comment  
+
+" ; fi
+if [[ -n ${computerName} ]]; then infobox+="**Computer Name:**  
+$computerName  
+
+" ; fi
+if [[ -n ${userName} ]]; then infobox+="**Username:**  
+$userName  
+
+" ; fi
+if [[ -n ${assetTag} ]]; then infobox+="**Asset Tag:**  
+$assetTag  
+
+" ; fi
+if [[ -n ${infoboxConfiguration} ]]; then infobox+="**Configuration:**  
+$infoboxConfiguration  
+
+" ; fi
+if [[ -n ${department} ]]; then infobox+="**Department:**  
+$department  
+
+" ; fi
+if [[ -n ${building} ]]; then infobox+="**Building:**  
+$building  
+
+" ; fi
+if [[ -n ${room} ]]; then infobox+="**Room:**  
+$room  
+
+" ; fi
+if [[ -n ${position} ]]; then infobox+="**Position:**  
+$position  
+
+" ; fi
 
 if { [[ "${promptForConfiguration}" != "true" ]] && [[ "${configurationDownloadEstimation}" == "true" ]]; } || { [[ "${welcomeDialog}" == "false" ]] || [[ "${welcomeDialog}" == "messageOnly" ]]; } then
     updateSetupYourMacDialog "Purposely NOT updating 'infobox'"
@@ -3042,41 +3235,58 @@ if [[ "${symConfiguration}" != *"Catch-all"* ]]; then
 
         updateScriptLog "Update 'helpmessage' with support-related information …"
 
-            helpmessage="If you need assistance, please contact:  \n\n**${supportTeamName}**  \n"
+            helpmessage="If you need assistance, please contact:  
+
+**${supportTeamName}**  
+"
             
             if [[ -n "${supportTeamPhone}" ]]; then
-                helpmessage+="- **Telephone:** ${supportTeamPhone}  \n"
+                helpmessage+="- **Telephone:** ${supportTeamPhone}  
+"
             fi
 
             if [[ -n "${supportTeamEmail}" ]]; then
-                helpmessage+="- **Email:** ${supportTeamEmail}  \n"
+                helpmessage+="- **Email:** ${supportTeamEmail}  
+"
             fi
     
             if [[ -n "${supportTeamChat}" ]]; then
-                helpmessage+="- **Online Chat:** ${supportTeamChatHyperlink}  \n"
+                helpmessage+="- **Online Chat:** ${supportTeamChatHyperlink}  
+"
             fi
 
             if [[ -n "${supportTeamWebsite}" ]]; then
-                helpmessage+="- **Web**: ${supportTeamHyperlink}  \n"
+                helpmessage+="- **Web**: ${supportTeamHyperlink}  
+"
             fi
         
             if [[ -n "${supportKB}" ]]; then
-                helpmessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}  \n"
+                helpmessage+="- **Knowledge Base Article:** ${supportTeamErrorKB}  
+"
             fi
             
             if [[ -n "${supportTeamHours}" ]]; then
-                helpmessage+="- **Support Hours:** ${supportTeamHours}  \n"
+                helpmessage+="- **Support Hours:** ${supportTeamHours}  
+"
             fi
 
         fi
 
         updateSetupYourMacDialog "Update 'helpmessage' with Configuration: ${infoboxConfiguration} …"
-        helpmessage+="\n**Configuration:**\n- $infoboxConfiguration\n"
+        helpmessage+="
+**Configuration:**
+- $infoboxConfiguration
+"
 
-        helpmessage+="\n**Computer Information:**  \n"
-        helpmessage+="- **Operating System:** ${macOSproductVersion} (${macOSbuildVersion})  \n"
-        helpmessage+="- **Serial Number:** ${serialNumber}  \n"
-        helpmessage+="- **Dialog:** ${dialogVersion}  \n"
+        helpmessage+="
+**Computer Information:**  
+"
+        helpmessage+="- **Operating System:** ${macOSproductVersion} (${macOSbuildVersion})  
+"
+        helpmessage+="- **Serial Number:** ${serialNumber}  
+"
+        helpmessage+="- **Dialog:** ${dialogVersion}  
+"
         helpmessage+="- **Started:** ${timestamp}"
         
     fi
@@ -3106,7 +3316,12 @@ for (( i=0; i<dialog_step_length; i++ )); do
 
     # If there's a value in the variable, update running swiftDialog
     if [[ -n "$listitem" ]]; then
-        updateSetupYourMacDialog "\n\n# # #\n# policyJSON > listitem: ${listitem}\n# # #\n"
+        updateSetupYourMacDialog "
+
+# # #
+# policyJSON > listitem: ${listitem}
+# # #
+"
         dialogUpdateSetupYourMac "activate:"
         dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Installing …, "
     fi
@@ -3138,7 +3353,8 @@ for (( i=0; i<dialog_step_length; i++ )); do
     dialogUpdateSetupYourMac "progress: increment ${progressIncrementValue}"
 
     # Record duration
-    updateSetupYourMacDialog "Elapsed Time for '${trigger}' '${validation}': $(printf '%dh:%dm:%ds\n' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
+    updateSetupYourMacDialog "Elapsed Time for '${trigger}' '${validation}': $(printf '%dh:%dm:%ds
+' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
 
 done
 

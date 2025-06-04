@@ -1,0 +1,132 @@
+#!/bin/bash
+#
+# Author  : Perry Driscoll - https://github.com/PezzaD84
+# Created : 23/2/2023
+# Updated : 15/6/2023
+# Version : v1.2
+#
+############################################################################
+# Description:
+#	This script is to reset the LAPS account and clear any local logs.
+#
+############################################################################
+# Copyright © 2023 Perry Driscoll <https://github.com/PezzaD84>
+#
+# This file is free software and is shared "as is" without any warranty of 
+# any kind. The author gives unlimited permission to copy and/or distribute 
+# it, with or without modifications, as long as this notice is preserved. 
+# All usage is at your own risk and in no event shall the authors or 
+# copyright holders be liable for any claim, damages or other liability.
+############################################################################
+#
+# JAMF Script Variables
+# $4: Local LAPS Account
+# $5: Encoded API Credentials
+# $6: JSS URL
+#
+############################################################################
+
+############################################################################
+# Variables
+############################################################################
+
+LAPSLOGDIR="/Library/Application Support/GiantEagle/logs"
+LAPSLOG="${LAPSLOGDIR}/LAPS.log"
+serial=$(system_profiler SPHardwareDataType | awk '/Serial Number/{print $4}')
+LAPSaccount="$4"
+EncodedCreds="$5"
+token=$(curl -s -H "Content-Type: application/json" -H "Authorization: Basic ${EncodedCreds}" -X POST "$6/api/v1/auth/token" | plutil -extract token raw -)
+
+############################################################################
+# Start message
+############################################################################
+
+#startMessage=$(osascript -e 'Display dialog "You are about to reset all LAPS configuration on this device.
+
+This will remove the LAPS account and all the LAPS logs.
+
+Are you sure you want to continue?" buttons {"Quit","Yes"} default button 1 with title "LAPS Reset" with icon alias "System:Library:CoreServices:CoreTypes.bundle:Contents:Resources:AlertStopIcon.icns"')
+startMessage="Yes"
+
+if echo $startMessage | grep 'Yes'; then
+	echo "LAPS Configuration will now be reset....."
+else
+	echo "LAPS will not be reset. User Quit."
+	exit 0
+fi
+
+############################################################################
+# LAPS Log Removal
+############################################################################
+
+if [ -f "$LAPSLOG" ]; then
+	echo "LAPS Log found. Removing log files now....."
+	rm -r "${LAPSLOG}"
+else
+	echo "No LAPS Log files found. Moving on....."
+fi
+
+############################################################################
+# Extension Attribute Reset
+############################################################################
+
+############################################################################
+# Reset cryptkey
+############################################################################
+
+echo "Resetting Encoded LAPS Password....."
+
+cryptID=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/ExtensionAttributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i CryptKey | tr ':' ' ' | tr ',' ' ' | awk '{print $2}')
+	
+	curl -s -X "PUT" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" \
+	-H "Content-Type: application/xml" \
+	-H "Accept: application/xml" \
+	-H "Authorization:Bearer ${token}" \
+	-d "<computer><extension_attributes><extension_attribute><id>$cryptID</id><name>LAPS CryptKey</name><type>String</type><value></value></extension_attribute></extension_attributes></computer>"
+	
+############################################################################
+# Reset secret
+############################################################################
+
+echo "Resetting LAPS Secret key....."
+
+secretID=$(curl -s -X "GET" "$6/JSSResource/computers/serialnumber/$serial/subset/ExtensionAttributes" -H "Accept: application/json" -H "Authorization:Bearer ${token}" | tr '{' '
+' | grep -i secret | tr ':' ' ' | tr ',' ' ' | awk '{print $2}')
+		
+	curl -s -X "PUT" "$6/JSSResource/computers/serialnumber/$serial/subset/extension_attributes" \
+	-H "Content-Type: application/xml" \
+	-H "Accept: application/xml" \
+	-H "Authorization:Bearer ${token}" \
+	-d "<computer><extension_attributes><extension_attribute><id>$secretID</id><name>LAPS Secret</name><type>String</type><value></value></extension_attribute></extension_attributes></computer>"
+	
+############################################################################
+# LAPS Account Removal
+############################################################################
+
+if dscl . -list /Users | grep -x -i "$LAPSaccount"; then
+	echo "LAPS Account found. Removing account and associated files and folders now....."
+	
+	echo "Removing $LAPSaccount from admin users group....."
+	dseditgroup -o edit -d $LAPSaccount -t user admin
+	sleep 2
+	
+	echo "Removing $LAPSaccount from the local device....."
+	dscl . -delete /Users/$LAPSaccount
+	sleep 2
+	
+	echo "Removing $LAPSaccount files and folders....."
+	rm -rf /Users/$LAPSaccount
+	sleep 2
+	
+	stillExists=$(dscl . -list /Users | grep -x -i "$LAPSaccount")
+	
+	if [[ $stillExists == "" ]]; then
+		echo "Success - LAPS Account has been removed and reset."
+		exit 0
+	fi
+	exit 1
+else
+	echo "LAPS Account not found. Exiting"
+	exit 0
+fi

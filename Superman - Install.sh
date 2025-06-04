@@ -19,8 +19,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
 LoggedInUser=$(echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 UserDir=$(dscl . -read /Users/${LoggedInUser} NFSHomeDirectory | awk '{ print $2 }' )
 
-JAMFClientID=""
-JAMFSecret=""
+JAMFClientID="<jamfclientID"
+JAMFSecret="<jamfclientSecret>"
 osInstallType="${4:-"minor"}"
 osForceVersion="${5:-""}"
 DeferralTime="${6:-"5,30,60,120"}"
@@ -34,7 +34,8 @@ DeferralCountSoft=$(( DeferralCount+1 ))
 
 # Add 1 day for the "soft" deadline
 [[ "${DeadlineDate}" == "" ]] && DeadlineDate=$(date "+%Y-%m-%d")
-DeadLineSoftDate=$(date -j -f "%Y-%m-%d" "${DeadlineDate}" +%Y-%m-%d)
+DeadLineSoftDate=$(date -j -v +1d -f "%Y-%m-%d" "${DeadlineDate}" +%Y-%m-%d)
+#DeadLineSoftDate=$(date -j -f "%Y-%m-%d" "${DeadlineDate}" +%Y-%m-%d)
 
 
 ####################
@@ -79,8 +80,7 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): ${1}" >> "${logFile}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${logFile}"
 }
 
 function check_superman_install ()
@@ -98,30 +98,20 @@ function check_superman_install ()
 function check_superman_icons ()
 {
     # Make sure that the icons are loaded first
-    if [[ ! -z "${IconPath}" ]] && [[ ! -e "${IconPath}" ]]; then
-        jamf policy -trigger $JAMFIconPolicy
-    fi
+    [[ ! -z "${IconPath}" ]] && [[ ! -e "${IconPath}" ]] && jamf policy -trigger $JAMFIconPolicy
 }
 
 function build_superman_parm_string ()
 {
     # Build the super command string
     if [[ "${osInstallType:l}" != "download" ]]; then
-        CommandString+=" --display-notifications-centered=ALWAYS"
-        CommandString+=" --dialog-timeout-power-required=1800"
-        CommandString+=" --dialog-timeout-user-auth=600"
-        CommandString+=" --dialog-timeout-user-choice=600"
-        ComamndString+=" --dialog-timeout-user-schedule=600"
-        CommandString+=" --dialog-timeout-soft-deadline=600"
-        CommandString+=" --display-hide-background=DEADLINE"
-        #CommandString+=" --auth-jamf-client=${JAMFClientID}"
-        #CommandString+=" --auth-jamf-secret=${JAMFSecret}"
+        #CommandString+=" --workflow-reset-super-after-completion"
+        CommandString+=" --auth-jamf-client=${JAMFClientID}"
+        CommandString+=" --auth-jamf-secret=${JAMFSecret}"
     fi
 
-    CommandString+=" --dialog-timeout-default=600"
     CommandString+=" --display-icon-file='${IconPath}'"
     CommandString+=" "${VerboseMode}
-    CommandString+=" --auth-credential-failover-to-user"
 
     case "${osInstallType:l}" in
         "download" )
@@ -135,7 +125,8 @@ function build_superman_parm_string ()
             logMe "Installing minor updates immediately"
             CommandString+=" --install-macos-major-upgrades-off"
             CommandString+=" --install-non-system-updates-without-restarting"
-            CommandString+=" --install-macos-major-version-target=X"
+            CommandString+=" --workflow-disable-update-check-off"
+            [[ ! -z "${osForceVersion}" ]] && CommandString+=" --install-macos-major-version-target="${osForceVersion}
             CommandString+=" --workflow-only-download-off"
             CommandString+=" --workflow-install-now"
             ;;
@@ -143,10 +134,13 @@ function build_superman_parm_string ()
         "major" )
             logMe "Installing Major OS update immediately"
             CommandString+=" --workflow-only-download-off"
+            CommandString+=" --schedule-zero-date-release"
             CommandString+=" --install-macos-major-upgrades"
             CommandString+=" --workflow-install-now"
+            CommandString+=" --workflow-disable-update-check-off"
             CommandString+=" --workflow-reset-super-after-completion"
-            [[ ! -z "${osForceVersion}" ]] && CommandString+=" --install-macos-major-version-target="${osForceVersion}
+            #[[ ! -z "${osForceVersion}" ]] && CommandString+=" --install-macos-major-version-target="${osForceVersion}
+            CommandString+=" --install-macos-major-version-target=X"
             CommandString+=" --deadline-count-focus="${DeferralCount}
             CommandString+=" --deadline-count-soft="${DeferralCount}
             ;;
@@ -157,14 +151,13 @@ function build_superman_parm_string ()
             CommandString+=" --deferral-timer-focus=15"
             CommandString+=" --deadline-date-soft="${DeadLineSoftDate}
             CommandString+=" --deadline-count-soft="${DeferralCountSoft}
-            CommandString+=" --deadline-date-focus="${DeadLineDate}
+            CommandString+=" --deadline-date-focus="${DeadlineDate}
             CommandString+=" --deadline-count-focus="${DeferralCount}
-            CommandString+=" --scheduled-install-user-choice"
-            CommandString+=" --scheduled-install-reminder=120,60,5"
+            CommandString+=" --workflow-disable-update-check-off"
             CommandString+=" --install-macos-major-upgrades"
             CommandString+=" --workflow-install-now-off"
-            CommandString+=" --workflow-only-download-off"
-            #CommandString+=" --workflow-reset-super-after-completion"
+            CommandString+=" --scheduled-install-user-choice"
+            CommandString+=" --scheduled-install-reminder=120,60,5"
             [[ ! -z "${osForceVersion}" ]] && CommandString+=" --install-macos-major-version-target="${osForceVersion}
 
             ;;
@@ -175,23 +168,26 @@ function build_superman_parm_string ()
             CommandString+=" --deferral-timer-focus=15"
             CommandString+=" --deadline-date-soft="${DeadLineSoftDate}
             CommandString+=" --deadline-count-soft="${DeferralCountSoft}
-            CommandString+=" --deadline-date-focus="${DeadLineDate}
+            CommandString+=" --deadline-date-focus="${DeadlineDate}
             CommandString+=" --deadline-count-focus="${DeferralCount}
-            CommandString+=" --install-non-system-updates-without-restarting"
-            CommandString+=" --install-macos-major-version-target=X"
             CommandString+=" --install-macos-major-upgrades-off"
+            [[ ! -z "${osForceVersion}" ]] && CommandString+=" --install-macos-major-version-target="${osForceVersion}
             CommandString+=" --workflow-install-now-off"
-            CommandString+=" --workflow-only-download-off"
+            CommandString+=" --workflow-disable-update-check-off"
+            #CommandString+=" --workflow-only-download-off"
             CommandString+=" --scheduled-install-user-choice"
             CommandString+=" --scheduled-install-reminder=120,60,5"
-            #CommandString+=" --workflow-reset-super-after-completion"
             ;;
         
         "reset" )
             logMe "Resetting Superman back to default settings"
-            CommandString+=" --reset-super"
+            CommandString=" --reset-super --workflow-disable-update-check-off"
             ;;
-            
+         
+        "disable" )
+            logMe "Disabling Superman from doing update checks"
+            CommandString=" --reset-super --workflow-disable-update-check"
+            ;;
     esac
 }
 
