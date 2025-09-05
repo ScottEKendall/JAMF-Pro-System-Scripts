@@ -45,7 +45,7 @@ function check_support_files ()
     [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
-function get_MS_access_token ()
+function get_ms_access_token ()
 {
     # PURPOSE: obtain the MS inTune Graph API Token
     # RETURN: access_token
@@ -109,8 +109,13 @@ noPasswordEntry="false"
 
 check_support_files
 
+if [[ ! -n "$LOGGED_IN_USER" ]]; then
+    echo "No user is logged in"
+    exit 0
+fi
+
 # Routine for getitng the info from MS Intune Graph API
-get_MS_access_token
+get_ms_access_token
 newPasswordDate=$(get_ms_user_data)
 
 echo "INFO: Plist file: $JSS_FILE"
