@@ -18,7 +18,7 @@
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 
-SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support/"
+SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JQ_INSTALL_POLICY="install_jq"
 JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
 
@@ -112,7 +112,7 @@ check_support_files
 get_MS_access_token
 newPasswordDate=$(get_ms_user_data)
 
-logMe "INFO: Plist file: $JSS_FILE"
+echo "INFO: Plist file: $JSS_FILE"
 
 # the date of 1601-01-01T00:00:00Z means that a user has never changed their password.  That is the default MS Epoch time...
 if [[ -z $newPasswordDate ]] || [[ "$newPasswordDate" == "null" ]] || [[ "$newPasswordDate" == "1601-01-01T00:00:00Z" ]]; then
