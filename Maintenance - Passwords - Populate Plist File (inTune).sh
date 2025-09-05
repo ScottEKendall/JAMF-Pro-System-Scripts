@@ -19,8 +19,9 @@ LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && 
 MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 
 SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
-JQ_INSTALL_POLICY="install_jq"
 JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
+
+JQ_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
