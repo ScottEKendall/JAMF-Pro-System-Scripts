@@ -2670,8 +2670,7 @@ canva)
     name="Canva"
     type="dmg"
         downloadURL=https://desktop-release.canva.com/Canva-latest.dmg
-        appNewVersion=$( curl -fsLI -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15" -H "accept-encoding: gzip, deflate, br" -H "Referrer Policy: strict-origin-when-cross-origin" -H "upgrade-insecure-requests: 1" -H "sec-fetch-dest: document" -H "sec-gpc: 1" -H "sec-fetch-user: ?1" -H "accept-language: en-US,en;q=0.9" -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9" -H "sec-fetch-mode: navigate" "https://www.canva.com/download/mac/intel/canva-desktop/" | grep -i "^location" | cut -d " " -f2 | tr -d '
-' | sed -E 's/.*\/[a-zA-Z]*-([0-9.]*)-*.*\.dmg/\1/g' )
+        appNewVersion=$( curl -fsLI -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15" -H "accept-encoding: gzip, deflate, br" -H "Referrer Policy: strict-origin-when-cross-origin" -H "upgrade-insecure-requests: 1" -H "sec-fetch-dest: document" -H "sec-gpc: 1" -H "sec-fetch-user: ?1" -H "accept-language: en-US,en;q=0.9" -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9" -H "sec-fetch-mode: navigate" "https://www.canva.com/download/mac/intel/canva-desktop/" | grep -i "^location" | cut -d " " -f2 | tr -d '' | sed -E 's/.*\/[a-zA-Z]*-([0-9.]*)-*.*\.dmg/\1/g' )
 
     expectedTeamID="5HD2ARTBFS"
     ;;
@@ -4482,8 +4481,7 @@ island)
     type="dmg"
     downloadURL="https://d3qqq7lqx3rf23.internal.island.io/E5QCaudFDx5FE5OX4INk/stable/latest/mac/IslandX64.dmg"
     appCustomVersion() { echo "$(defaults read /Applications/Island.app/Contents/Info.plist CFBundleShortVersionString | sed 's/[^.]*.//' | sed -e 's/*\.//')" }
-    appNewVersion=$(curl -fsLIXGET "https://d3qqq7lqx3rf23.internal.island.io/E5QCaudFDx5FE5OX4INk/stable/latest/mac/IslandX64.dmg" | grep -i "^x-amz-meta-version" | sed -e 's/x-amz-meta-version\: //' | tr -d '
-')
+    appNewVersion=$(curl -fsLIXGET "https://d3qqq7lqx3rf23.internal.island.io/E5QCaudFDx5FE5OX4INk/stable/latest/mac/IslandX64.dmg" | grep -i "^x-amz-meta-version" | sed -e 's/x-amz-meta-version\: //' | tr -d '')
     expectedTeamID="38ZC4T8AWY"
     ;;
 istatmenus)
@@ -5203,7 +5201,7 @@ logitechoptions)
 " | grep -A 10 "macOS" | grep -oie "https.*/.*/options/.*\.zip" | head -1)
     downloadURL="https://download01.logi.com/web/ftp/pub/techsupport/options/options_installer.zip"
     appNewVersion=$(curl -fs "https://support.logi.com/api/v2/help_center/en-us/articles.json?label_names=webcontent=productdownload,webos=mac-macos-x-11.0" | tr "," "
-" | grep -A 10 "macOS" | grep -B 5 -ie "https.*/.*/options/.*\.zip" | grep "Software Version" | sed 's/ [0-9a-z][0-9a-z][0-9a-z][0-9a-z]//g' | grep -ioe "Software Version.*[0-9.]*" | tr "/" "
+" | grep -A 10 "macOS" | grep -B 5 -ie "https.*/.*/options/.*\.zip" | grep "Software Version" | sed 's/\u[0-9a-z][0-9a-z][0-9a-z][0-9a-z]//g' | grep -ioe "Software Version.*[0-9.]*" | tr "/" "
 " | grep -oe "[0-9.]*" | head -1)
     #pkgName="LogiMgr Installer "*".app/Contents/Resources/LogiMgr.pkg"
     pkgName=LogiMgr.pkg
@@ -5219,7 +5217,7 @@ logitechoptionsplus)
     # Latest version of Logi Options+ requires macOS 12+
     # If older macOS is specified in the url for appNewVersion, it will never correspond to the installed version
     appNewVersion=$(curl -fs "https://support.logi.com/api/v2/help_center/en-us/articles.json?label_names=webcontent=productdownload,webos=mac-macos-x-12.0" | tr "," "
-" | grep -A 10 "macOS" | grep -B 5 -ie "https.*/.*/optionsplus/.*\.zip" | grep "Software Version" | sed 's/ [0-9a-z][0-9a-z][0-9a-z][0-9a-z]//g' | grep -ioe "Software Version.*[0-9.]*" | tr "/" "
+" | grep -A 10 "macOS" | grep -B 5 -ie "https.*/.*/optionsplus/.*\.zip" | grep "Software Version" | sed 's/\u[0-9a-z][0-9a-z][0-9a-z][0-9a-z]//g' | grep -ioe "Software Version.*[0-9.]*" | tr "/" "
 " | grep -oe "[0-9.]*" | head -1)
     CLIInstaller="logioptionsplus_installer.app/Contents/MacOS/logioptionsplus_installer"
     CLIArguments=(--quiet)
@@ -5232,7 +5230,7 @@ logitune)
     type="dmg"
     downloadURL="https://software.vc.logitech.com/downloads/tune/LogiTuneInstaller.dmg"
     appNewVersion=$(curl -fs "https://support.logi.com/api/v2/help_center/en-us/articles.json?label_names=webcontent=productdownload,webos=mac-macos-x-11.0" | tr "," "
-" | grep -A 10 "macOS" | grep -B 5 -ie "https.*/.*/optionsplus/.*\.zip" | grep "Software Version" | sed 's/ [0-9a-z][0-9a-z][0-9a-z][0-9a-z]//g' | grep -ioe "Software Version.*[0-9.]*" | tr "/" "
+" | grep -A 10 "macOS" | grep -B 5 -ie "https.*/.*/optionsplus/.*\.zip" | grep "Software Version" | sed 's/\u[0-9a-z][0-9a-z][0-9a-z][0-9a-z]//g' | grep -ioe "Software Version.*[0-9.]*" | tr "/" "
 " | grep -oe "[0-9.]*" | head -1)
     CLIInstaller="LogiTuneInstaller.app/Contents/MacOS/LogiTuneInstaller"
     CLIArguments=(-silent)
@@ -7625,8 +7623,7 @@ skim)
 skype)
     name="Skype"
     type="dmg"
-    downloadURL=$(curl -sfi https://get.skype.com/go/getskype-skypeformac | awk 'BEGIN{IGNORECASE=1} /location:/ {gsub(/
-/,"",$2); print $2}')
+    downloadURL=$(curl -sfi https://get.skype.com/go/getskype-skypeformac | awk 'BEGIN{IGNORECASE=1} /location:/ {gsub(//,"",$2); print $2}')
     archiveName=$(basename "$downloadURL")
     appNewVersion=$(awk -F'[-.]' '{print $2"."$3"."$4"."$5}' <<< "$archiveName")
     versionKey="CFBundleVersion"
@@ -7845,8 +7842,7 @@ splashtopsos)
 splashtopstreamer)
     name="Splashtop Streamer"
     type="pkgInDmg"
-    downloadURL=$(curl -fsLI "https://my.splashtop.com/csrs/mac" | grep -i '^location:' | tail -n 1 | cut -d ' ' -f 2 | tr -d '
-')
+    downloadURL=$(curl -fsLI "https://my.splashtop.com/csrs/mac" | grep -i '^location:' | tail -n 1 | cut -d ' ' -f 2 | tr -d '')
     appNewVersion=$(echo $downloadURL | sed -E 's/.*_v([0-9.]+).dmg/\1/')
     expectedTeamID="CPQQ3AW49Y"
     ;;
@@ -8351,8 +8347,7 @@ transmit5)
     name="Transmit"
     type="zip"
     downloadURL="https://download.panic.com/transmit/Transmit-5-Latest.zip"
-    appNewVersion="$(curl -fsI "https://download.panic.com/transmit/Transmit-5-Latest.zip" | grep -i "^location" | sed -E 's/.*Transmit%20([0-9]+(\.[0-9]+)*)\.zip/\1/' | tr -d '
-')"
+    appNewVersion="$(curl -fsI "https://download.panic.com/transmit/Transmit-5-Latest.zip" | grep -i "^location" | sed -E 's/.*Transmit%20([0-9]+(\.[0-9]+)*)\.zip/\1/' | tr -d '')"
     expectedTeamID="VE8FC488U5"
     ;;
 

@@ -2,10 +2,11 @@
 
 # Reset InTune/Jamf integration. Removes all files and keychain items.
 # Updated by Patrick Gallagher
-# Last update 03/19/2020
+# Last update 07/11/2025
 
-jamfTrigger="companyportal"
+jamfTrigger="install_mscompanyportal"
 loggedInUser=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
+AAD_ID=$(su "$loggedInUser" -c "security find-certificate -a -Z | grep -B 9 "MS-ORGANIZATION-ACCESS" | awk '/\"alis\"<blob>=\"/ {print $NF}' | sed 's/  \"alis\"<blob>=\"//;s/.$//'")
 
 if [[ $(pgrep "Company Portal") != "" ]]; then
   echo "Quitting Company Portal"
@@ -14,16 +15,19 @@ fi
 
 
 file_Array=(
-  "/Applications/Company Portal.app/"
-  "/Users/${loggedInUser}/Library/Application Support/com.microsoft.CompanyPortal.usercontext.info"
-  "/Users/${loggedInUser}/Library/Application Support/com.jamfsoftware.selfservice.mac"
-  "/Users/${loggedInUser}/Library/Saved Application State/com.jamfsoftware.selfservice.mac.savedState"
-  "/Users/${loggedInUser}/Library/Saved Application State/com.jamf.management.jamfAAD.savedState/"
-  "/Users/${loggedInUser}/Library/Saved Application State/com.microsoft.CompanyPortal.savedState"
-  "/Users/${loggedInUser}/Library/Preferences/com.microsoft.CompanyPortal.plist"
-  "/Users/${loggedInUser}/Library/Preferences/com.jamfsoftware.management.jamfAAD.plist"
-  "/Users/${loggedInUser}/Library/Cookies/com.microsoft.CompanyPortal.binarycookies"
-  "/Users/${loggedInUser}/Library/Cookies/com.jamf.management.jamfAAD.binarycookies"
+	"/Applications/Company Portal.app/"
+	"/Library/Preferences/com.microsoft.CompanyPortalMac.plist"
+  	"/Users/${loggedInUser}/Library/Application Support/com.microsoft.CompanyPortalMac.usercontext.info"
+  	"/Users/${loggedInUser}/Library/Application Support/com.microsoft.CompanyPortalMac"
+	"/Users/${loggedInUser}/Library/Application Support/com.jamfsoftware.selfservice.mac"
+    "/Users/${loggedInUser}/Library/Application Support/Company Portal"
+    "/Users/${loggedInUser}/Library/Saved Application State/com.jamfsoftware.selfservice.mac.savedState"
+    "/Users/${loggedInUser}/Library/Saved Application State/com.jamf.management.jamfAAD.savedState"
+    "/Users/${loggedInUser}/Library/Saved Application State/com.microsoft.CompanyPortalMac.savedState"
+    "/Users/${loggedInUser}/Library/Preferences/com.microsoft.CompanyPortalMac"
+    "/Users/${loggedInUser}/Library/Preferences/com.jamf.management.jamfAAD.plist"
+    "/Users/${loggedInUser}/Library/Cookies/com.microsoft.CompanyPortalMac.binarycookies"
+    "/Users/${loggedInUser}/Library/Cookies/com.jamf.management.jamfAAD.binarycookies"
 )
 
 
@@ -63,8 +67,10 @@ done
 identityPref_Array=(
   'com.jamf.management.jamfAAD'
   'com.microsoft.CompanyPortal'
+  'com.microsoft.CompanyPortalMac'
   'com.microsoft.CompanyPortal.HockeySDK'
   'enterpriseregistration.windows.net'
+  'com.microsoft.adalcache'
   'https://device.login.microsoftonline.com'
   'https://device.login.microsoftonline.com/'
   'https://enterpriseregistration.windows.net'
@@ -85,5 +91,15 @@ if [[ $certCheck != "" ]]; then
     /usr/bin/security delete-identity -Z "$certCheck" -t /Users/${loggedInUser}/Library/Keychains/login.keychain-db > /dev/null 2>&1
 fi
 
+echo "Removing WPJ for Device AAD ID $AAD_ID for $loggedInUser"
+if [[ ! -z $AAD_ID ]]; then
+    su "$loggedInUser" -c "security delete-identity -c $AAD_ID"
+fi
+echo "Performing JamfAAD Clean command"
+su "$loggedInUser" -c "/usr/local/jamf/bin/jamfAAD clean"
 
 /usr/local/bin/jamf policy -event $jamfTrigger
+sleep 10
+echo "Launching Registration Process"
+su "$loggedInUser" -c "/usr/local/jamf/bin/jamfAAD registerWithIntune"
+su "$loggedInUser" -c "/usr/local/jamf/bin/jamfAAD gatherAADInfo"

@@ -84,7 +84,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -179,7 +178,8 @@ function welcomemsg ()
     )
 
 	# Show the dialog screen and allow the user to choose
-
+	
+    logMe "INFO: Disk space is at ${DiskUsage}% used."
     "${SW_DIALOG}" "${MainDialogBody[@]}"
 	buttonpress=$?
 

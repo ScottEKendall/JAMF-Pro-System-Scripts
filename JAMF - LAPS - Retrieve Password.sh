@@ -126,7 +126,7 @@ echo "Jamf Pro URL: $jamfProUsername"
 
 while [ "$jamfProPassword" = "" ]
 do
-	jamfProPassword=$( displayDialog "Password for account \"$jamfProUsername\" at
+	jamfProPassword=$( displayDialog "Password for account \\"$jamfProUsername\\" at
 $jamfProURL:" "" "with hidden answer" )
 	evaluateResponse "$jamfProPassword"
 done

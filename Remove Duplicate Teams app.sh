@@ -20,12 +20,16 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
-	[[ ! -d "${logDir}" ]] &&mkdir -p "${logDir}"
+	if [[ ! -d "${logDir}" ]]; then
+		mkdir -p "${logDir}"
+	fi
     chmod 755 "${logDir}"
 
 	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${logFile}" ]] && touch "${logDir}"
-    chmod 644 "${logDir}"
+	if [[ ! -f "${logFile}" ]]; then
+		touch "${logDir}"
+		chmod 644 "${logDir}"
+	fi
 }
 
 function logMe () 
@@ -38,7 +42,9 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "$(date '+%Y%m%d %H:%M:%S'): ${1}" | tee -a "${logFile}"
+    echo "${1}" 1>&2
+    echo "$(date '+%Y%m%d %H:%M:%S'): ${1}
+" >> "${logFile}"
 }
 
 TeamsClassic="/Applications/Microsoft Teams Classic.app"

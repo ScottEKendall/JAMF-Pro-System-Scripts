@@ -4,10 +4,23 @@
 # IN NO EVENT SHALL JAMF SOFTWARE, LLC OR ANY OF ITS AFFILIATES BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE SOFTWARE, 
 # INCLUDING BUT NOT LIMITED TO DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE DAMAGES AND OTHER DAMAGES SUCH AS LOSS OF USE, PROFITS, SAVINGS, TIME OR DATA, BUSINESS INTERRUPTION, OR PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES.
 #get logged in user
-loggedInUser=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
+
+getValueOf ()
+{
+	echo $2 | grep "$1" | awk -F ":" '{print $2}' | tr -d "," | xargs
+}
+
+# Prompt the user to register if needed
+loggedInUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 if [[ -z "$loggedInUser" ]]; then
 	echo "no logged in User"
     exit 1
+fi
+
+ssoStatus=$(su -l $loggedInUser -c "app-sso platform -s")
+if [[ $(getValueOf registrationCompleted "$ssoStatus") != true ]]; then
+	echo "Registered via Platform SSO"
+    exit 0
 fi
 
 #get user home directory

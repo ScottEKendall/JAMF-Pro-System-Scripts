@@ -25,6 +25,9 @@
 #   - Improved Remote Validation error-checking
 #   - Updated Dynamic Download Estimates for macOS 15 Sequoia
 #
+#   Version 1.15.1, 06-Feb-2025
+#   - Fixed minor issue with `calculateFreeDiskSpace` function result not being parsed into scriptLog
+#
 ####################################################################################################
 
 
@@ -39,7 +42,7 @@
 # Script Version and Jamf Pro Script Parameters
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-scriptVersion="1.15.0"
+scriptVersion="1.15.1"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 scriptLog="${4:-"/var/log/org.churchofjesuschrist.log"}"                        # Parameter 4: Script Log Location [ /var/log/org.churchofjesuschrist.log ] (i.e., Your organization's default location for client-side logs)
 debugMode="${5:-"verbose"}"                                                     # Parameter 5: Debug Mode [ verbose (default) | true | false ]
@@ -105,9 +108,7 @@ departmentListRaw="Engineering
 Development
 Sales
 Marketing
-Graphics
 Retail"
-
 # A sorted, unique, JSON-compatible list of departments
 departmentList=$( echo "${departmentListRaw}" | tr ',' '
 ' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
@@ -271,7 +272,16 @@ function runAsUser() {
 
 }
 
-
+function greeting() {
+    hour=$(date +%H)
+    if [[ $hour -le 11 ]]; then
+        echo "Good morning"
+    elif [[ $hour -le 18 ]]; then
+        echo "Good afternoon"
+    else
+        echo "Good evening"
+    fi
+}
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Calculate Free Disk Space
@@ -281,12 +291,12 @@ function runAsUser() {
 function calculateFreeDiskSpace() {
 
     freeSpace=$( diskutil info / | grep -E 'Free Space|Available Space|Container Free Space' | awk -F ":\s*" '{ print $2 }' | awk -F "(" '{ print $1 }' | xargs )
-    freeBytes=$( diskutil info / | grep -E 'Free Space|Available Space|Container Free Space' | awk -F "(\(| Bytes\))" '{ print $2 }' )
-    diskBytes=$( diskutil info / | grep -E 'Total Space' | awk -F "(\(| Bytes\))" '{ print $2 }' )
+    freeBytes=$( diskutil info / | grep -E 'Free Space|Available Space|Container Free Space' | awk -F "(\\(| Bytes\\))" '{ print $2 }' )
+    diskBytes=$( diskutil info / | grep -E 'Total Space' | awk -F "(\\(| Bytes\\))" '{ print $2 }' )
     freePercentage=$( echo "scale=2; ( $freeBytes * 100 ) / $diskBytes" | bc )
     diskSpace="$freeSpace free (${freePercentage}% available)"
 
-    diskMessage=$("Disk Space: ${diskSpace}")
+    diskMessage="Disk Space: ${diskSpace}"
 
 }
 
@@ -587,7 +597,7 @@ function confirmPolicyExecution() {
             else
                 updateSetupYourMacDialog "Updating computer inventory with the following 'reconOptions': \"${reconOptions}\" …"
                 dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Updating …, "
-                reconRaw=$( eval "${jamfBinary} recon ${reconOptions} -verbose | tee -a '${scriptLog}'" )
+                reconRaw=$( eval "${jamfBinary} recon ${reconOptions} -verbose | tee -a ${scriptLog}" )
                 computerID=$( echo "${reconRaw}" | grep '<computer_id>' | xmllint --xpath xmllint --xpath '/computer_id/text()' - )
             fi
             ;;
@@ -928,11 +938,7 @@ function completionAction() {
     if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
 
         # If Debug Mode is enabled, ignore specified `completionActionOption`, display simple dialog box and exit
-        runAsUser osascript -e 'display dialog "Setup Your Mac is operating in Debug Mode.
-
-• completionActionOption == '"'${completionActionOption}'"'
-
-" with title "Setup Your Mac: Debug Mode" buttons {"Close"} with icon note'
+        runAsUser osascript -e 'display dialog "Setup Your Mac is operating in Debug Mode.• completionActionOption == '"'${completionActionOption}'"'" with title "Setup Your Mac: Debug Mode" buttons {"Close"} with icon note'
         exitCode="0"
 
     else
@@ -1646,11 +1652,7 @@ else
         # When the current `osBuild` is older than `requiredMinimumBuild`; exit with error
         else
             preFlight "The installed operating system, macOS ${osVersion} (${osBuild}), needs to be updated to Build ${requiredMinimumBuild}; exiting with error."
-            osascript -e 'display dialog "Please advise your Support Representative of the following error:
-
-Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').
-
-" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
+            osascript -e 'display dialog "Please advise your Support Representative of the following error:Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}')." with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
             preFlight "Executing /usr/bin/open '${outdatedOsAction}' …"
             su - "${loggedInUser}" -c "/usr/bin/open \"${outdatedOsAction}\""
             exit 1
@@ -1661,11 +1663,7 @@ Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${os
     else
 
         preFlight "swiftDialog requires at least macOS 12 Monterey and this Mac is running ${osVersion} (${osBuild}), exiting with error."
-        osascript -e 'display dialog "Please advise your Support Representative of the following error:
-
-Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').
-
-" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
+        osascript -e 'display dialog "Please advise your Support Representative of the following error:Expected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}')." with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
         preFlight "Executing /usr/bin/open '${outdatedOsAction}' …"
         su - "${loggedInUser}" -c "/usr/bin/open \"${outdatedOsAction}\""
         exit 1
@@ -1716,11 +1714,7 @@ function acPowerCheck() {
         done
         killProcess "osascript"
         preFlight "No AC power detected, exiting"
-        osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.
-
-Please connect AC power and try again.
-
-" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+        osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.Please connect AC power and try again." with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
         exit 1
 
     }
@@ -1738,23 +1732,13 @@ Please connect AC power and try again.
 
         if [[ "$acPowerWaitTimer" -gt 0 ]]; then
 
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.
-
-Please connect your computer to power using an AC power adapter.
-
-This process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected.
-
-" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
+            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.Please connect your computer to power using an AC power adapter.This process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected." with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
             waitForPower
 
         else
 
             preFlight "No AC power detected, exiting"
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.
-
-Please connect AC power and try again.
-
-" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.Please connect AC power and try again." with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
             exit 1
 
         fi
@@ -1859,11 +1843,7 @@ function dialogInstall() {
     else
 
         # Display a so-called "simple" dialog if Team ID fails to validate
-        osascript -e 'display dialog "Please advise your Support Representative of the following error:
-
-• Dialog Team ID verification failed
-
-" with title "Setup Your Mac: Error" buttons {"Close"} with icon caution'
+        osascript -e 'display dialog "Please advise your Support Representative of the following error:• Dialog Team ID verification failed" with title "Setup Your Mac: Error" buttons {"Close"} with icon caution'
         completionActionOption="Quit"
         exitCode="1"
         quitScript
@@ -1997,7 +1977,10 @@ failureCommandFile=$( mktemp -u /var/tmp/dialogCommandFileFailure.XXX )
 # "Welcome" dialog Title, Message and Icon
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-welcomeTitle="Happy $( date +'%A' ), ${loggedInUserFirstname}!  
+timeOfDay=$(greeting)
+#welcomeTitle="Happy $( date +'%A' ), ${loggedInUserFirstname}!  
+Welcome to your new ${modelName}"
+welcomeTitle="$timeOfDay ${loggedInUserFirstname}!  
 Welcome to your new ${modelName}"
 
 welcomeMessage="Please enter the **required** information for your ${modelName}, select your preferred **Configuration** then click **Continue** to start applying settings to your new Mac. 
@@ -2336,8 +2319,7 @@ infobox="Analyzing input …" # Customize at "Update Setup Your Mac's infobox"
 
 
 # Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
-xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'
-'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
+xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$''/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
 overlayicon="/var/tmp/overlayicon.icns"
 
 # Uncomment to use generic, Self Service icon as overlayicon
@@ -2485,19 +2467,19 @@ function policyJSONConfiguration() {
                     },
                     {
                         "listitem": "Rosetta 2",
-                        "subtitle": "Rosetta enables a Mac with Apple Silicon to use apps built for a Mac with an Intel processor",
+                        "subtitle": "translation layer that allows Intel-based Mac applications to run on Macs with Apple silicon chips",
                         "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_11df9fe11ac2585cedc97c113a7f66fa800f1b70cf530358aa643aada97946ff",
                         "progresstext": "Install Rosetta 2",
                         "trigger_list": [
                                          {
                                             "trigger": "rosetta2",
-                                            "validation": "None"
+                                            "validation": "./Library/Apple/usr/libexec/oah/libRosettaRuntime"
                                          }
                         ]
                     },
                     {
                         "listitem": "Microsoft Office",
-                        "subtitle": "Microsoft Office 365 ",
+                        "subtitle": "Microsoft Office 365",
                         "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_9829f5109a1d69eb747a9e5f20931a80075fcd290bb57466c18417cd18a13f19",
                         "progresstext": "Install Microsoft Office (Word, Excel, Powerpoint, Outlook, OneDrive and Teams)",
                         "trigger_list": [
@@ -2520,14 +2502,14 @@ function policyJSONConfiguration() {
                         ]
                     },
                     {
-                        "listitem": "Install Zscaler",
-                        "subtitle": "Zscaler ensures that your internet traffic and access to your organization internal apps are secure and in compliance",
-                        "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_26f530242c3e9fcfdb7df6fa0d66eb77ff09de93c3b86850dd9df629245a2425",
-                        "progresstext": "Install Zscaler",
+                        "listitem": "Install Microsoft Edge",
+                        "subtitle": "Edge is known for its speed and performance, leveraging the Chromium engine for a more efficient browsing experience",
+                        "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_609d0c3f36234bba9a2082e7b51857c19a2a49e7a125a6a2d01be2da1d348323",
+                        "progresstext": "Install Microsoft Edge",
                         "trigger_list": [
                                          {
-                                            "trigger": "zscaler",
-                                            "validation": "/Applications/Zscaler/Zscaler.app/Contents/Info.plist"
+                                            "trigger": "msedge",
+                                            "validation": "/Applications/Microsoft Edge.app/Contents/Info.plist"
                                          }
                         ]
                     },
@@ -2565,12 +2547,12 @@ function policyJSONConfiguration() {
                     },
                     {
                         "listitem": "Update Inventory",
-                        "subtitle": "The listing of your Macs apps and settings",
+                        "subtitle": "Update the listing of your Macs apps and settings",
                         "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_17bb134b081926141436553d20d7837fe1a12f84067b2994e7939b097e42d0b7",
                         "progresstext": "Update Inventory",
                         "trigger_list": [
                                          {
-                                            "trigger": "151",
+                                            "trigger": "recon",
                                             "validation": "recon"
                                          }
                         ]

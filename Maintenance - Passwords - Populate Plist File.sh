@@ -16,6 +16,8 @@
 #
 ######################################################################################################
 
+LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
+
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="${SUPPORT_DIR}/logs"
@@ -184,7 +186,50 @@ function get_JAMF_InventoryRecord ()
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$jamfID?section=$1") # 2>/dev/null)
-    echo $retval | tr -d '\n'
+    echo $retval | tr -d '
+'
+}
+
+function get_MS_access_token ()
+{
+    # PURPOSE: obtain the MS inTune Graph API Token
+    # RETURN: access_token
+    # Expected ms_url
+
+    token_response=$(curl -s -X POST "https://login.microsoftonline.com/$tenant_id/oauth2/v2.0/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=client_credentials&client_id=$client_id&client_secret=$client_secret&scope=https://graph.microsoft.com/.default")
+
+    ms_access_token=$(echo "$token_response" | jq -r '.access_token')
+
+    if [[ "$access_token" == "null" ]] || [[ -z "$access_token" ]]; then
+        echo "Failed to acquire access token"
+        echo "$token_response"
+        exit 1
+    fi
+
+    echo "Access token acquired"
+}
+
+function get_ms_user_data ()
+{
+    # PURPOSE: Retrieve the user's Graph API Record
+    # RETURN: last_password_change
+    # Expected ms_url
+
+    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/$microsoftUserName?\$select=lastPasswordChangeDateTime" \
+    -H "Authorization: Bearer $ms_access_token")
+
+    last_password_change=$(echo "$user_response" | jq -r '.lastPasswordChangeDateTime')
+
+    if [[ "$last_password_change" == "null" ]] || [[ -z "$last_password_change" ]]; then
+        echo "Could not retrieve lastPasswordChangeDateTime"
+        echo "$user_response"
+        exit 1
+    else
+        #echo "User: $user_principal_name"
+        echo $last_password_change
+    fi
+
 }
 
 # Define the function to calculate days between today and the given date
@@ -220,6 +265,7 @@ declare recordExtensions
 
 search_type="Hostname"
 computer_id=$MAC_SERIAL_NUMBER
+microsoftUserName=$(dscl . read /Users/$LOGGED_IN_USER dsAttrTypeStandard:AltSecurityIdentities | awk -F'SSO:' '/PlatformSSO/ {print $2}')
 
 autoload 'is-at-least'
 
@@ -228,7 +274,6 @@ check_support_files
 
 # Perform JAMF API calls to locate device & retrieve device info
 
-#check_JSS_Connection
 get_JAMF_Server
 get_JamfPro_Classic_API_Token
 jamfID=$(get_JAMF_DeviceID ${search_type})

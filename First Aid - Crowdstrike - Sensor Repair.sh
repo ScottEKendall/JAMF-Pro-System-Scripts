@@ -119,7 +119,7 @@ function get_agent_info ()
 }
 function uninstall_reinstall ()
 {
-        falconKickStartUninstall=$( ${falconBinary} uninstall -t <<< <your license key here>)
+        falconKickStartUninstall=$( ${falconBinary} uninstall -t <<< 00345e4e1ce6372bdb2477afac6fd5fac39a074e9a3761bae509a895b2cf1c4e )
         log_sensor_updates "${falconKickStartUninstall}"
 
         logMe "Re-installing CrowdStrike Falcon …"

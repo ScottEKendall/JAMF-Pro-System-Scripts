@@ -5,7 +5,10 @@
 #
 # Created by: Scott Kendall
 # Created on: 01/29/25
-# Last Modified: 01/29/25
+# Last Modified: 05/28/2025
+# 
+# 1.0 - Initial Commit
+# 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 
 # Expected Parmaters
 #
@@ -17,7 +20,7 @@
 # Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -28,20 +31,38 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-SW_DIALOG="/usr/local/bin/dialog"
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="${SUPPORT_DIR}/logs"
 
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+
+# Swift Dialog version requirements
+
+SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+MIN_SD_REQUIRED_VERSION="2.3.3"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+##################################################
 #
-# Set default vales if not passed
-#
+# Passed in variables
+# 
+#################################################
+
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
 
 LOG_TO_VIEW=${4:-"/var/log/system.log"}
 LOG_WINDOW_TITLE=${5:-"System Log"}
 LOG_LENGTH=${6:-100}
+TMP_FILE_STORAGE=$(mktemp /var/tmp/ViewLogs.XXXXX)
 
 ###################################################
 #
@@ -49,32 +70,25 @@ LOG_LENGTH=${6:-100}
 #
 ###################################################
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-MAIL_ICON="/Applications/Microsoft Outlook.app"
-OVERLAY_ICON="${ICON_FILES}AllMyFiles.icns"
-TMP_FILE_STORAGE=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-BANNER_TEXT_PADDING="      "
-SD_INFO_BOX_MSG=""
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View ${LOG_WINDOW_TITLE}"
+SD_INFO_BOX_MSG=""
+OVERLAY_ICON="${ICON_FILES}AllMyFiles.icns"
+LOG_FILE="${LOG_DIR}/ViewLogFile.log"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
+MAIL_ICON="${ICON_FILES}InternetLocation.icns"
+# Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
+EMAIL_APP='com.microsoft.outlook'
 
-# Swift Dialog version requirements
-
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ####################################################################################################
 #
 # Functions
 #
 ####################################################################################################
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -162,61 +176,59 @@ function import_log_contents ()
 {
     tail -${LOG_LENGTH} "${LOG_TO_VIEW}" > "${TMP_FILE_STORAGE}"
 
-    tempmsg=""
+    log_body=""
     while IFS= read -r item; do
-        tempmsg+="$item<br>"
+        log_body+="$item<br>"
     done < "${TMP_FILE_STORAGE}"
 }
 
 function mail_logs ()
 {
 	MainDialogBody=(
-		--message "The contents of the log file have been put on the clipboard.  Once the new message is composed, be sure to paste the log (Option-V or Edit > Paste) into the body of the mail message."
+        --message "Please enter the email address you want to send this to.  The contents of the log file will be put into the message body.  "
         --messagefont "size=16"
 		--ontop
 		--icon "${MAIL_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
 		--quitkey 0
+        --titlefont shadow=1
         --json
-        --textfield "Email Address:",value="<username>@gianteagle.com"
+        --textfield "Email Address:",value="<username>@company.com"
 		--button1text "Send"
         --button2text "Cancel"
-        )
+    )
 
-    output=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+	output=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+
     buttonpress=$?
     [[ ${buttonpress} -eq 2 ]] && return 0
 
-    cat ${TMP_FILE_STORAGE} | pbcopy
+    log_body=$(cat ${TMP_FILE_STORAGE})
     email_address=$(echo $output | awk '{print $NF}'| grep @ | xargs )
     
-    # Use outlook to send the email message
-
-    /usr/bin/open -b com.microsoft.outlook 'mailto:'${email_address}'?subject='${LOG_WINDOW_TITLE}' from '${MAC_SERIAL_NUMBER}
+    /usr/bin/open -b ${EMAIL_APP} 'mailto:'${email_address}'?subject='${LOG_WINDOW_TITLE}' from '${MAC_SERIAL_NUMBER}'&body='${log_body}
 
 }
 
 function welcomemsg ()
 {
 	MainDialogBody=(
-    	--message ${tempmsg}
+        --message "${log_body}"
         --messagefont "size=12"
 		--ontop
 		--icon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
         --infobox "${SD_INFO_BOX_MSG}"
-		--width 1120
+        --titlefont shadow=1
+		--width 1000
         --height 600
 		--quitkey 0
         --json
 		--button1text "OK"
-        --button2text "Send via Email"
-        )
-
+		--button2text "Send via Email"
+    )
 	# Show the dialog screen and allow the user to choose
 
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
@@ -234,9 +246,15 @@ function cleanup_and_exit ()
 	exit 0
 }
 
+####################################################################################################
+#
+# Main Script
+#
+####################################################################################################
 autoload 'is-at-least'
 
 declare email_address
+declare log_body
 
 check_swift_dialog_install
 create_infobox_message

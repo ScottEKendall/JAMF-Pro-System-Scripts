@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 04/15/2025
+# Last updated: 08/13/2025
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -13,6 +13,7 @@
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Reworked logic for all physical adapters to accomodate for older macs
 # 1.3 - Included logic to display Wifi name if found
+# 1.4 - Changed logic for Wi-Fi name to accomodate macOS 15.6 changes
 
 ######################################################################################################
 #
@@ -159,7 +160,7 @@ function get_nic_info
 
         [[ -z $currentip ]] && continue
         adapter+="$sname"
-        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($(sudo wdutil info | grep "SSID" | head -1 | awk -F ":" '{print $2}' | xargs))_" || wifiName=""        
+        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($( system_profiler SPAirPortDataType | awk '/Current Network Information:/ { getline; print substr($0, 13, (length($0) - 13)); exit }' ))_"      
         ip_address+="**$currentip** $wifiName"
     done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
 

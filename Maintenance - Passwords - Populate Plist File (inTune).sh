@@ -18,10 +18,9 @@
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/PopulatePasswordPlist"
+SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support/"
 JQ_INSTALL_POLICY="install_jq"
-JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
+JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
 
 ##################################################
 #
@@ -105,6 +104,7 @@ declare ms_access_token
 declare last_password_change
 
 forceRecon="No"
+noPasswordEntry="false"
 
 check_support_files
 
@@ -112,8 +112,10 @@ check_support_files
 get_MS_access_token
 newPasswordDate=$(get_ms_user_data)
 
+logMe "INFO: Plist file: $JSS_FILE"
+
 # the date of 1601-01-01T00:00:00Z means that a user has never changed their password.  That is the default MS Epoch time...
-if [[ -z $newPasswordDate ]] || [[ "$newPasswordDate" == "null" ]] || "$newPasswordDate" == "1601-01-01T00:00:00Z"; then
+if [[ -z $newPasswordDate ]] || [[ "$newPasswordDate" == "null" ]] || [[ "$newPasswordDate" == "1601-01-01T00:00:00Z" ]]; then
 	# Couldn't find the key in the plist file, so we have to rely on the local login password last changed date
     
     passwordAge=$(expr $(expr $(date +%s) - $(dscl . read /Users/${LOGGED_IN_USER} | grep -A1 passwordLastSetTime | grep real | awk -F'real>|</real' '{print $2}' | awk -F'.' '{print $1}')) / 86400)
@@ -132,9 +134,9 @@ echo "INFO: Curent Password Age: $passwordAge"
 
 # Get the value of the date stored in our plist file
 retval=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $JSS_FILE 2>&1)
-
 # If the password is blank, then set it to the calculated value
-[[ -z $retval ]]  || [[ "$retval" == "null" ]] && retval=$newPasswordDate
+[[ "$retval" == *"Does Not Exist"* ]] && {noPasswordEntry="true"; retval="null";}
+[[ -z $retval ]] || [[ "$retval" == "null" ]]  && retval=$newPasswordDate
 
 # do a quick santity check...convert both dates to epoch time
 timestamp_lastretval=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $retval +%s)
@@ -148,7 +150,7 @@ if [[ $timestamp_lastPass -gt $timestamp_lastretval ]]; then
 fi
 
 # Store the Password Last Date changed in this file
-if [[ $retval == *"Does Not Exist"* ]]; then
+if [[ $retval == *"Does Not Exist"* ]] || [[ "$noPasswordEntry" == "true" ]]; then
     # Entry does not exist so lets create it and populate the userPassword into it
     retval=$(/usr/libexec/plistbuddy -c "add PasswordLastChanged string $newPasswordDate" $JSS_FILE 2>&1)
     echo "INFO: Created new key 'PasswordLastChanged' with contents $newPasswordDate"

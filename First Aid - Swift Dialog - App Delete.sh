@@ -68,6 +68,8 @@ MANAGED_APPS=(
 	"Falcon"
     "Jamf Connect"
 	"Self Service"
+    "Self Service+"
+    "Support"
     "ZScaler")
 
 ##################################################

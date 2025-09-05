@@ -1,11 +1,20 @@
 #!/bin/zsh
 #
-# Written by: Scott E. Kendall
+# DialogMsg
+# 
+# Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 01/27/2025
+# Last modified: 06/23/2025
+#
+# Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
 # v1.0 - Inital script
+# v1.1 - Code cleanup to be more consistant with all apps
+# v1.2 - the JAMF_LOGGED_IN_USER will default to LOGGED_IN_USER if there is no name present
+#      - Added -ignorednd to make sure that the message is displayed regardless of focus setting
+#      - Will display the infobox items if you can the function first
+#      - Minimum version of SwiftDialog is now 2.5.0
 #
 # Expected Paramaters: 
 # #4 - Title
@@ -25,10 +34,18 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
+OS_PLATFORM=$(/usr/bin/uname -p)
+
+[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
 
 LOG_DIR="${SUPPORT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/DialogNotify.log"
@@ -38,16 +55,18 @@ LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
+JSONOptions=$(mktemp /var/tmp/DialogNotify.XXXXX)
 BANNER_TEXT_PADDING="      "
 SD_INFO_BOX_MSG=""
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+SD_DEFAULT_LANGUAGE="EN"
+DISPLAY_MESSAGE=""
 
 ##################################################
 #
@@ -55,16 +74,17 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}$4"
 SD_WELCOME_MSG="${5:-"Information Message"}"
-SD_BUTTON1_PROMPT="${6:-"OK"}"
-SD_IMAGE_TO_DISPLAY="${7:-""}"
-SD_IMAGE_POLCIY="${8:-""}"
-SD_ICON_PRIMARY="${9:-"AlertNoteIcon.icns"}"
-SD_TIMER="${10-120}"
+SD_WELCOME_MSG_ALT="${6:-""}"
+SD_BUTTON1_PROMPT="${7:-"OK"}"
+SD_IMAGE_TO_DISPLAY="${8:-""}"
+SD_IMAGE_POLCIY="${9:-""}"
+SD_ICON_PRIMARY="${10:-"AlertNoteIcon.icns"}"
+SD_TIMER="${11-120}"
 SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
 
 
@@ -138,33 +158,33 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    if [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]]; then
-        [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}     
-    fi   
-    # Make sure it is readable by everyone
-    chmod +r "${SD_IMAGE_TO_DISPLAY}"
+    [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}
+    /bin/chmod 666 "${SD_IMAGE_TO_DISPLAY}"
 }
 
 function display_msg ()
 {
 	MainDialogBody=(
-		--message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${SD_WELCOME_MSG}"
+		--message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${DISPLAY_MESSAGE}"
 		--ontop
 		--icon "${SD_ICON_PRIMARY}"
+        --titlefont shadow=1
 		--overlayicon computer
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
+        --infobox "${SD_INFO_BOX_MSG}"
+        --ignorednd
+        --moveable
+        --helpmsg ""
 		--quitkey 0
         --timer "${SD_TIMER}"
 		--button1text "${SD_BUTTON1_PROMPT}"
     )
-        [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 540 --image "${SD_IMAGE_TO_DISPLAY}")
+        [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 530 --image "${SD_IMAGE_TO_DISPLAY}")
 
 	# Show the dialog screen and allow the user to choose
 
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-    returnCode=$?
 }
 
 function create_infobox_message()
@@ -175,20 +195,65 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##
-"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
+function check_language_support ()
+{
+
+    declare -a languageArray
+    declare preferredLanguage && preferredLanguage=${LANG[1,2]:u}
+
+    # if there is no 2nd language line, the just return the 1st line
+    
+    if [[ -z "${SD_WELCOME_MSG_ALT}" ]]; then
+        echo "${SD_WELCOME_MSG}"
+        return 0
+    fi
+
+    languageArray+=(${SD_WELCOME_MSG})
+    languageArray+=(${SD_WELCOME_MSG_ALT})
+
+    # get the system(s) default language
+
+    # Loop through the array and print the message for the preferred language
+    for entry in "${languageArray[@]}"; do
+        langCode=$(echo $entry | awk -F "|" '{print $1}' | xargs)
+        message=$(echo $entry | awk -F "|" '{print $2}'| xargs)
+        if [[ "$preferredLanguage" == "$langCode" ]]; then
+            echo "${message}"
+            return 0
+        fi
+    done
+
+    # If no match was found, print the message for the default language
+    for entry in "${languageArray[@]}"; do
+        langCode=$(echo $entry | awk -F "|" '{print $1}'| xargs)
+        message=$(echo $entry | awk -F "|" '{print $2}' | xargs)
+
+        if [[ "$SD_DEFAULT_LANGUAGE" == "$langCode" ]]; then
+            echo "${message}"
+            return 0
+        fi
+    done
+}
+
+####################################################################################################
+#
+# Main Script
+#
+####################################################################################################
 
 autoload 'is-at-least'
 
 check_swift_dialog_install
 check_support_files
 create_infobox_message
+DISPLAY_MESSAGE=$(check_language_support)
 display_msg
 exit 0

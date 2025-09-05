@@ -4,19 +4,20 @@
 #
 # Purpose: Provide user notifications of a password expiration.
 #
-# Created Date: 04/18/2025
-# Last modified: 04/18/2025
+# Created: 04/18/2024
+# Last updated: 07/02/2025
 #
-# v1.0 - Inital script
+# v1.0 - Initial Release
+# v1.1 - Major code cleanup & documentation
+#		 Structred code to be more inline / consistent across all apps
+# v1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# v1.3 - Fixed pasword age calculation
+# 		 Add support for 'on demand' viewing of password
 #
 # Expected Paramaters: 
-# #4 - Title
-# #5 - Full formatted message to display
-# #6 - Button1 Text
-# #7 - Image to display
-# #8 - JAMF policy to load image if it doeesn't exist
-# #9 - Notification icon name
-# #10 - Timer (in seconds) to wait until dismissal
+# $4 - Password Expiration in Days
+# $5 - Show "on demand" viewing (Yes) or script processing (No)
+
 ######################################################################################################
 #
 # Gobal "Common" variables
@@ -33,7 +34,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
@@ -70,9 +70,8 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
 SD_IMAGE_TO_DISPLAY="/Library/Application Support/GiantEagle/SupportFiles/PasswordChange.png"
 SD_IMAGE_POLICY="install_passwordSS"
-SD_ICON_PRIMARY="AlertNoteIcon.icns"
 SD_TIMER="240"
-SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
+SD_ICON_PRIMARY="${ICON_FILES}AlertNoteIcon.icns"
 
 ##################################################
 #
@@ -80,10 +79,10 @@ SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}   # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 PASSWORD_EXPIRE_IN_DAYS=$4
-
+PASSWORD_CHECK=${5:-"NO"}
 
 ####################################################################################################
 #
@@ -159,7 +158,6 @@ function check_support_files ()
     # Make sure it is readable by everyone
     chmod +r "${SD_IMAGE_TO_DISPLAY}"
 }
-
 
 function display_msg ()
 {
@@ -241,25 +239,19 @@ function get_password_info()
     # RETURN: Password age (in days)
     declare passwordExpireDate
     declare curUser
+    declare passwordAge
 
     passwordExpireDate=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $JSS_FILE 2>&1)
-    formattedDate=$(date -jf "%Y-%m-%dT%H:%M:%SZ" $passwordExpireDate +"%Y-%m-%d" | xargs)
-    logMe "INFO: Password last changed date: " $formattedDate
 
-    if [[ -z $formattedDate ]]; then #$passwordExpireDate == *"Does Not Exist"* ||
-        # Not populated yet or blank, so fall back to the local login password change
-		logMe "INFO: Expire Date not found, getting date from local system"
+    if [[ $passwordExpireDate == *"Does Not Exist"* || -z $passwordExpireDate ]]; then
+        # Not populated yet, so fall back to the local login password change
         passwordAge=$(expr $(expr $(date +%s) - $(dscl . read /Users/${LOGGED_IN_USER} | grep -A1 passwordLastSetTime | grep real | awk -F'real>|</real' '{print $2}' | awk -F'.' '{print $1}')) / 86400)
-        logMe "RESULT: Password age calculated from local system: $passwordAge"
-	else
+    else
         #found the key, so determine the days based off of that
-        
-		logMe "INFO: Expire date found in plist file: "$formattedDate
-        passwordAge=$(duration_in_days $formattedDate $(date))
-        logMe "RESULT: Password age calculated from plist file: $passwordAge"
+        passwordAge=$(duration_in_days $passwordExpireDate $(date))
     fi
-    passwordAge=$((PASSWORD_EXPIRE_IN_DAYS-passwordAge))
-    logMe "INFO: JAMF shows password will expire in ${passwordAge} days"
+    passwordAge=$(($PASSWORD_EXPIRE_IN_DAYS - $passwordAge))
+    echo ${passwordAge}
 }
 
 ####################################################################################################
@@ -270,22 +262,21 @@ function get_password_info()
 autoload 'calendar_scandate'
 autoload 'is-at-least'
 
-declare passwordAge
-
 check_swift_dialog_install
 check_support_files
 create_infobox_message
 
 # Retrieve the users password ago and display he appropriate dialog box
-get_password_info
+passwordAge=$(get_password_info)
+logMe "INFO: Users passsword age is: "$passwordAge
 
-if [[ ${passwordAge} -ge 8 ]]; then
+if [[ ${passwordAge} -ge 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
     SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Change Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
-	logMe "INFO: Display dialog prompt for user that password will expire in ${passwordAge} days"
+	logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
 	display_msg
 else
     SD_WELCOME_MSG="Your password will expire in ${passwordAge} days."
-    logMe "INFO: Display system notification for user that password will expire in ${passwordAge} days"
+    logMe "INFO: Display notification for user that password will expire in ${passwordAge} days"
 
     display_notification
 fi
