@@ -106,7 +106,6 @@ function msgraph_get_group_data ()
 #
 ####################################################################################################
 
-declare ETAG_FILE
 declare MSGRAPH_GROUPS
 declare ADMIN_GROUP="GE Corporate Mac Users-Admins"
 
