@@ -73,6 +73,24 @@ function get_ms_user_photo ()
     echo "$user_response" | jq -r '."@odata.mediaEtag"'
 }
 
+function upn_sanity_check ()
+{
+    # 1) if the local name already contains “@” we take it like this
+    if [[ "$LOGGED_USER" == *"@"* ]]; then
+        UPN="$LOGGED_USER"
+    else
+        # 2) if it ends with the domain without the “@” → we add the @ sign
+        if [[ "$LOGGED_USER" == *"$DOMAIN" ]]; then
+            CLEAN_USER=${LOGGED_USER%$DOMAIN}
+            UPN="${CLEAN_USER}@${DOMAIN}"
+        else
+            # 3) normal short name → user@domain
+            UPN="${LOGGED_USER}@${DOMAIN}"
+        fi
+    fi
+    echo "[INFO] Resolved UPN for Graph: $UPN"
+}
+
 function retrieve_ms_user_photo ()
 {
     curl -s -L -H "Authorization: Bearer ${ms_access_token}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$PHOTO_FILE"
@@ -133,6 +151,7 @@ ETAG_FILE="$PHOTO_DIR/${SAFE_UPN}.etag"
 # Get Access token
 get_ms_access_token
 CURRENT_ETAG=$(get_ms_user_photo)
+upn_sanity_check
 
 # Check the current eTAg info
 [[ "$CURRENT_ETAG" == "null" ]] && { echo "INFO: No photo in Entra ID"; cleanup_and_exit 0; }
