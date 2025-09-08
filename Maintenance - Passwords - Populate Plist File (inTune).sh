@@ -77,6 +77,23 @@ function get_ms_user_data ()
 
 }
 
+function upn_sanity_check ()
+{
+    # 1) if the local name already contains “@” we take it like this
+    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
+        MS_USER_NAME="$LOGGED_IN_USER"
+    else
+        # 2) if it ends with the domain without the “@” → we add the @ sign
+        if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
+            CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
+            MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
+        else
+            # 3) normal short name → user@domain
+            MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
+        fi
+    fi
+}
+
 # Define the function to calculate days between today and the given date
 
 function calculate_days_between() {
@@ -116,6 +133,7 @@ fi
 
 # Routine for getitng the info from MS Intune Graph API
 get_ms_access_token
+upn_sanity_check
 newPasswordDate=$(get_ms_user_data)
 
 echo "INFO: Plist file: $JSS_FILE"
