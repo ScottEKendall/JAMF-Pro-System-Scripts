@@ -76,19 +76,18 @@ function get_ms_user_photo ()
 function upn_sanity_check ()
 {
     # 1) if the local name already contains “@” we take it like this
-    if [[ "$LOGGED_USER" == *"@"* ]]; then
-        UPN="$LOGGED_USER"
+    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
+        MS_USER_NAME="$LOGGED_IN_USER"
     else
         # 2) if it ends with the domain without the “@” → we add the @ sign
-        if [[ "$LOGGED_USER" == *"$DOMAIN" ]]; then
-            CLEAN_USER=${LOGGED_USER%$DOMAIN}
-            UPN="${CLEAN_USER}@${DOMAIN}"
+        if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
+            CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
+            MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
         else
             # 3) normal short name → user@domain
-            UPN="${LOGGED_USER}@${DOMAIN}"
+            MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
         fi
     fi
-    echo "[INFO] Resolved UPN for Graph: $UPN"
 }
 
 function retrieve_ms_user_photo ()
@@ -136,6 +135,12 @@ function cleanup_and_exit ()
 ####################################################################################################
 
 declare ETAG_FILE
+
+# Get Access token
+get_ms_access_token
+CURRENT_ETAG=$(get_ms_user_photo)
+upn_sanity_check
+
 # Get Logged in User info
 
 echo "INFO: Logged-in user (short name): $LOGGED_IN_USER"
@@ -146,13 +151,6 @@ SAFE_UPN=$(echo "$MS_USER_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
 PHOTO_FILE="$PHOTO_DIR/${SAFE_UPN}.jpg"
 ETAG_FILE="$PHOTO_DIR/${SAFE_UPN}.etag"
 [[ ! -e "$PHOTO_DIR" ]] && mkdir -p "$PHOTO_DIR"
-
-
-# Get Access token
-get_ms_access_token
-CURRENT_ETAG=$(get_ms_user_photo)
-upn_sanity_check
-
 # Check the current eTAg info
 [[ "$CURRENT_ETAG" == "null" ]] && { echo "INFO: No photo in Entra ID"; cleanup_and_exit 0; }
 
