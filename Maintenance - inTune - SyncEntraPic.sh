@@ -43,7 +43,7 @@ TENANT_ID="$6"
 #
 ####################################################################################################
 
-function get_ms_access_token ()
+function msgraph_get_access_token ()
 {
     # PURPOSE: obtain the MS inTune Graph API Token
     # RETURN: access_token
@@ -55,53 +55,62 @@ function get_ms_access_token ()
     ms_access_token=$(echo "$token_response" | jq -r '.access_token')
 
     if [[ "$ms_access_token" == "null" ]] || [[ -z "$ms_access_token" ]]; then
-        echo "Failed to acquire access ms_access_token"
+        echo "Failed to acquire access token"
         echo "$token_response"
         exit 1
     fi
-    echo "INFO: Valid MS Graph Token Acquired"
+    echo "Valid Token Acquired"
 }
 
-function get_ms_user_photo ()
+function msgraph_upn_sanity_check ()
+{
+    # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
+    # RETURN: Properly formatted UPN name
+    # PARAMETERS: $1 = User name
+    # EXPECTED: LOGGED_IN_USER, DOMAIN
+
+    # if the local name already contains “@”, then it should be good
+    [[ "$LOGGED_IN_USER" == *"@"* ]] && {echo "$LOGGED_IN_USER"; return 0;}
+    
+    # if it ends with the domain without the “@” → we add the @ sign
+    if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
+        CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
+        MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
+    else
+        # 3) normal short name → user@domain
+        MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
+    fi
+    echo $MS_USER_NAME
+}
+
+function msgraph_get_user_photo_etag ()
 {
     # PURPOSE: Retrieve the user's Graph API Record
     # RETURN: last_password_change
     # EXPECTED: MS_USER_NAME, ms_access_token
 
     user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo" -H "Authorization: Bearer $ms_access_token")
-
     echo "$user_response" | jq -r '."@odata.mediaEtag"'
 }
 
-function upn_sanity_check ()
+function msgraph_get_user_photo_jpeg ()
 {
-    # 1) if the local name already contains “@” we take it like this
-    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
-        MS_USER_NAME="$LOGGED_IN_USER"
-    else
-        # 2) if it ends with the domain without the “@” → we add the @ sign
-        if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
-            CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
-            MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
-        else
-            # 3) normal short name → user@domain
-            MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
-        fi
-    fi
-}
+    # PURPOSE: Retrieve the user's Graph API JPEG photo
+    # PARAMETERS: $1 - Photo file to store download file
+    # RETURN: None
+    # EXPECTED: MS_USER_NAME, ms_access_token
 
-function retrieve_ms_user_photo ()
-{
-    curl -s -L -H "Authorization: Bearer ${ms_access_token}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$PHOTO_FILE"
+    curl -s -L -H "Authorization: Bearer ${ms_access_token}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$$1"
+    [[ ! -s "$1" ]] && { echo "ERROR: Downloaded file empty"; cleanup_and_exit 1; }
 }
 
 function create_photo_dir ()
 {
     # Store retrieved file to perm location  
     PERM_PHOTO_FILE="${PERM_PHOTO_DIR}/${LOGGED_IN_USER}.jpg"
-    mkdir -p "$PERM_PHOTO_DIR"
-    cp "$PHOTO_FILE" "$PERM_PHOTO_FILE"
-    chmod 644 "$PERM_PHOTO_FILE"
+    /bin/mkdir -p "$PERM_PHOTO_DIR"
+    /bin/cp "$PHOTO_FILE" "$PERM_PHOTO_FILE"
+    /bin/chmod 644 "$PERM_PHOTO_FILE"
 }
 
 function set_proflie_picture ()
@@ -111,12 +120,12 @@ function set_proflie_picture ()
         echo "ERROR: Cannot resize image"; cleanup_and_exit 1
     }
 
-    dscl . -create "/Users/$LOGGED_IN_USER" JPEGPhoto "$(base64 < "$TMP_FILE_STORAGE")" && \
+    /usr/bin/dscl . -create "/Users/$LOGGED_IN_USER" JPEGPhoto "$(base64 < "$TMP_FILE_STORAGE")" && \
         echo "SUCCESS: JPEGPhoto updated for $LOGGED_IN_USER" || \
         echo "ERROR: Failed to set JPEGPhoto"
 
     # Optional: keep path attribute for legacy
-    dscl . -create "/Users/$LOGGED_IN_USER" picture "$PERM_PHOTO_FILE"
+    /usr/bin/dscl . -create "/Users/$LOGGED_IN_USER" picture "$PERM_PHOTO_FILE"
 
 }
 
@@ -128,6 +137,15 @@ function cleanup_and_exit ()
 	exit $1
 }
 
+function check_photo_directory ()
+{
+    # PURPOSE: Create the photo directory if it doesn't already exist
+    # PARAMETERS: $1 - Photo file to store download file
+    # RETURN: None
+    # EXPECTED: None
+    [[ ! -e "$1" ]] && mkdir -p "$1"
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -137,9 +155,10 @@ function cleanup_and_exit ()
 declare ETAG_FILE
 
 # Get Access token
-get_ms_access_token
-CURRENT_ETAG=$(get_ms_user_photo)
-upn_sanity_check
+msgraph_get_access_token
+msgraph_upn_sanity_check
+CURRENT_ETAG=$(msgraph_get_user_photo_etag)
+check_photo_directory $PHOTO_DIR
 
 # Get Logged in User info
 
@@ -150,7 +169,7 @@ echo "INFO: Resolved UPN for Graph: $MS_USER_NAME"
 SAFE_UPN=$(echo "$MS_USER_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
 PHOTO_FILE="$PHOTO_DIR/${SAFE_UPN}.jpg"
 ETAG_FILE="$PHOTO_DIR/${SAFE_UPN}.etag"
-[[ ! -e "$PHOTO_DIR" ]] && mkdir -p "$PHOTO_DIR"
+
 # Check the current eTAg info
 [[ "$CURRENT_ETAG" == "null" ]] && { echo "INFO: No photo in Entra ID"; cleanup_and_exit 0; }
 
@@ -160,8 +179,7 @@ if [[ -f "$ETAG_FILE" ]]; then
 fi
 
 # Retrieve photo
-retrieve_ms_user_photo
-[[ ! -s "$PHOTO_FILE" ]] && { echo "ERROR: Downloaded file empty"; cleanup_and_exit 1; }
+msgraph_get_user_photo_jpeg $PHOTO_FILE
 create_photo_dir
 set_proflie_picture
 

@@ -45,7 +45,7 @@ function check_support_files ()
     [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
-function get_ms_access_token ()
+function msgraph_get_access_token ()
 {
     # PURPOSE: obtain the MS inTune Graph API Token
     # RETURN: access_token
@@ -64,34 +64,39 @@ function get_ms_access_token ()
     echo "Valid Token Acquired"
 }
 
-function get_ms_user_data ()
+function msgraph_get_password_data ()
 {
     # PURPOSE: Retrieve the user's Graph API Record
     # RETURN: last_password_change
     # EXPECTED: MS_USER_NAME, ms_access_token
 
     user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/$MS_USER_NAME?\$select=lastPasswordChangeDateTime" -H "Authorization: Bearer $ms_access_token")
-
     last_password_change=$(echo "$user_response" | jq -r '.lastPasswordChangeDateTime')
     echo $last_password_change
 
 }
 
-function upn_sanity_check ()
+function msgraph_upn_sanity_check ()
 {
-    # 1) if the local name already contains “@” we take it like this
+    # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
+    # RETURN: Properly formatted UPN name
+    # PARAMETERS: $1 = User name
+    # EXPECTED: LOGGED_IN_USER, DOMAIN
+
+    # if the local name already contains “@”, then it should be good
     if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
-        MS_USER_NAME="$LOGGED_IN_USER"
-    else
-        # 2) if it ends with the domain without the “@” → we add the @ sign
-        if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
-            CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
-            MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
-        else
-            # 3) normal short name → user@domain
-            MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
-        fi
+        echo "$LOGGED_IN_USER"
+        return 0
     fi
+    # if it ends with the domain without the “@” → we add the @ sign
+    if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
+        CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
+        MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
+    else
+        # 3) normal short name → user@domain
+        MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
+    fi
+    echo $MS_USER_NAME
 }
 
 # Define the function to calculate days between today and the given date
@@ -132,9 +137,9 @@ if [[ ! -n "$LOGGED_IN_USER" ]]; then
 fi
 
 # Routine for getitng the info from MS Intune Graph API
-get_ms_access_token
-upn_sanity_check
-newPasswordDate=$(get_ms_user_data)
+msgraph_get_access_token
+msgraph_upn_sanity_check
+newPasswordDate=$(msgraph_get_password_data)
 
 echo "INFO: Plist file: $JSS_FILE"
 
