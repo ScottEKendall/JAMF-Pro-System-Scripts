@@ -41,6 +41,11 @@ TENANT_ID="$6"
 ####################################################################################################
 function msgraph_getdomain ()
 {
+    # PURPOSE: construct the domain from the jamf.plist file
+    # PARAMETERS: None
+    # RETURN: None
+    # EXPECTED: MS_DOMAIN
+
     local url
     url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
 
@@ -52,6 +57,7 @@ function msgraph_getdomain ()
 function msgraph_get_access_token ()
 {
     # PURPOSE: obtain the MS inTune Graph API Token
+    # PARAMETERS: None
     # RETURN: access_token
     # EXPECTED: TENANT_ID, CLIENT_ID, CLIENT_SECRET
 
@@ -77,7 +83,7 @@ function msgraph_upn_sanity_check ()
 
     # if the local name already contains “@”, then it should be good
     if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
-        echo "$LOGGED_IN_USER"
+        MS_USER_NAME="${LOGGED_IN_USER}"
         return 0
     fi
     # if it ends with the domain without the “@” → we add the @ sign
@@ -93,6 +99,7 @@ function msgraph_upn_sanity_check ()
 function msgraph_get_group_data ()
 {
     # PURPOSE: Retrieve the user's Graph API group membership
+    # PARAMETERS: None
     # RETURN: None
     # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN, MSGRAPH_GROUP
 
@@ -125,9 +132,8 @@ msgraph_get_group_data
 # Determine if users have RO or RW in their groupnames.  This denotes legacy drive access
 
 for item in ${MSGRAPH_GROUPS[@]}; do
-    if [[ "${item:l}" == "_rw" ]] || [[ "{$item:l}" == "_ro" ]]; then
+    if [[ "${item:l}" == *"_rw"* ]] || [[ "{$item:l}" == *"_ro"* ]]; then
         localGroups+=${item:u}
-        echo "Drive Share: "${item:u}
     fi
 done
 
@@ -142,7 +148,7 @@ else
     /usr/libexec/PlistBuddy -c "Delete DriveMappings" $JSS_FILE 2>&1
 fi
 
-retval=$(/usr/libexec/plistbuddy -c "add DriveMappings array $adminUser" $JSS_FILE 2>&1)
+retval=$(/usr/libexec/plistbuddy -c "add DriveMappings array" $JSS_FILE 2>&1)
 # Make sure nothing went wrong while creating the array
 [[ ! -z $retval ]] && {echo "ERROR: Results of last command: "$retval; exit 1;} 
 
