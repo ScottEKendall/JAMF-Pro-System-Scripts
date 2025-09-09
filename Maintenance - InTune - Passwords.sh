@@ -163,6 +163,8 @@ msgraph_get_access_token
 msgraph_upn_sanity_check
 newPasswordDate=$(msgraph_get_password_data)
 
+echo "INFO: Logged-in user (short name): $LOGGED_IN_USER"
+echo "INFO: Resolved UPN for Graph: $MS_USER_NAME"
 echo "INFO: Plist file: $JSS_FILE"
 
 # the date of 1601-01-01T00:00:00Z means that a user has never changed their password.  That is the default MS Epoch time...
