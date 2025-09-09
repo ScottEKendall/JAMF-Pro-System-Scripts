@@ -134,6 +134,14 @@ function calculate_days_between()
     echo $difference_days
 }
 
+function check_logged_in_user () 
+{
+    if [[ ! -n "$LOGGED_IN_USER" ]]; then
+        echo "No user is logged in"
+        exit 0
+    fi
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -147,11 +155,7 @@ forceRecon="No"
 noPasswordEntry="false"
 
 check_support_files
-
-if [[ ! -n "$LOGGED_IN_USER" ]]; then
-    echo "No user is logged in"
-    exit 0
-fi
+check_logged_in_user
 
 # Routine for getitng the info from MS Intune Graph API
 msgraph_getdomain

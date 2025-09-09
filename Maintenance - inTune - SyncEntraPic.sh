@@ -21,7 +21,6 @@ MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F 
 
 PHOTO_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JSS_FILE="$PHOTO_DIR/com.GiantEagleEntra.plist"
-DOMAIN="gianteagle.com"
 PERM_PHOTO_DIR="/Library/User Pictures"
 TMP_FILE_STORAGE=$(mktemp /var/tmp/EntraPhoto.XXXXX)
 /bin/chmod 666 $TMP_FILE_STORAGE
@@ -42,19 +41,34 @@ TENANT_ID="$6"
 # Functions
 #
 ####################################################################################################
+function msgraph_getdomain ()
+{
+    # PURPOSE: construct the domain from the jamf.plist file
+    # PARAMETERS: None
+    # RETURN: None
+    # EXPECTED: MS_DOMAIN
+
+    local url
+    url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+
+    # Extract the desired part using Zsh parameter expansion
+    tmp=${url#*://}  # Remove the protocol part
+    MS_DOMAIN=${tmp%%.*}".com"  # Remove everything after the first dot and add '.com' to the end
+}
 
 function msgraph_get_access_token ()
 {
     # PURPOSE: obtain the MS inTune Graph API Token
+    # PARAMETERS: None
     # RETURN: access_token
     # EXPECTED: TENANT_ID, CLIENT_ID, CLIENT_SECRET
 
     token_response=$(curl -s -X POST "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
     -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=client_credentials&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&scope=https://graph.microsoft.com/.default")
 
-    ms_access_token=$(echo "$token_response" | jq -r '.access_token')
+    MS_ACCESS_TOKEN=$(echo "$token_response" | jq -r '.access_token')
 
-    if [[ "$ms_access_token" == "null" ]] || [[ -z "$ms_access_token" ]]; then
+    if [[ "$MS_ACCESS_TOKEN" == "null" ]] || [[ -z "$MS_ACCESS_TOKEN" ]]; then
         echo "Failed to acquire access token"
         echo "$token_response"
         exit 1
@@ -65,23 +79,25 @@ function msgraph_get_access_token ()
 function msgraph_upn_sanity_check ()
 {
     # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
-    # RETURN: Properly formatted UPN name
+    # RETURN: None
     # PARAMETERS: $1 = User name
-    # EXPECTED: LOGGED_IN_USER, DOMAIN
+    # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
-    [[ "$LOGGED_IN_USER" == *"@"* ]] && {echo "$LOGGED_IN_USER"; return 0;}
-    
+    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
+        echo "$LOGGED_IN_USER"
+        return 0
+    fi
     # if it ends with the domain without the “@” → we add the @ sign
-    if [[ "$LOGGED_IN_USER" == *"$DOMAIN" ]]; then
-        CLEAN_USER=${LOGGED_IN_USER%$DOMAIN}
-        MS_USER_NAME="${CLEAN_USER}@${DOMAIN}"
+    if [[ "$LOGGED_IN_USER" == *"$MS_DOMAIN" ]]; then
+        CLEAN_USER=${LOGGED_IN_USER%$MS_DOMAIN}
+        MS_USER_NAME="${CLEAN_USER}@${MS_DOMAIN}"
     else
         # 3) normal short name → user@domain
-        MS_USER_NAME="${LOGGED_IN_USER}@${DOMAIN}"
+        MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
     fi
-    echo $MS_USER_NAME
 }
+
 
 function msgraph_get_user_photo_etag ()
 {
@@ -146,6 +162,14 @@ function check_photo_directory ()
     [[ ! -e "$1" ]] && mkdir -p "$1"
 }
 
+function check_logged_in_user () 
+{
+    if [[ ! -n "$LOGGED_IN_USER" ]]; then
+        echo "No user is logged in"
+        exit 0
+    fi
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -153,8 +177,12 @@ function check_photo_directory ()
 ####################################################################################################
 
 declare ETAG_FILE
+declare MS_DOMAIN
+declare MS_ACCESS_TOKEN
 
+check_logged_in_user
 # Get Access token
+msgraph_getdomain
 msgraph_get_access_token
 msgraph_upn_sanity_check
 CURRENT_ETAG=$(msgraph_get_user_photo_etag)
