@@ -46,10 +46,7 @@ function msgraph_getdomain ()
 
     # Extract the desired part using Zsh parameter expansion
     tmp=${url#*://}  # Remove the protocol part
-    tmp=${tmp%%.*}  # Remove everything after the first dot
-
-    # Append the ".com" part
-    MS_DOMAIN="${tmp}.com"
+    MS_DOMAIN=${tmp%%.*}".com"  # Remove everything after the first dot and add '.com' to the end
 }
 
 function msgraph_get_access_token ()
