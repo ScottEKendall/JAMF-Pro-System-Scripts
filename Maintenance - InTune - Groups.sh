@@ -2,9 +2,10 @@
 #
 # by: Scott Kendall
 #
-# Written: 09/08/2025
+# Written: 09/09/2025
+# Last updated: 09/09/2025
 
-# Script determines if users is a member of GE Corporate Mac Users-Admins and send results to the user .plist file
+# Script to retrieve users groups from EntraID and store them in the Users plist file
 # 
 # 1.0 - Initial code
 #
@@ -16,8 +17,10 @@
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
+
 SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
+
 JQ_INSTALL_POLICY="install_jq"
 
 ##################################################
@@ -36,12 +39,6 @@ TENANT_ID="$6"
 # Functions
 #
 ####################################################################################################
-
-function check_support_files ()
-{
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
-}
-
 function msgraph_getdomain ()
 {
     local url
@@ -120,34 +117,34 @@ function msgraph_get_group_data ()
 #
 ####################################################################################################
 
-declare MSGRAPH_GROUPS
-declare MS_DOMAIN
 declare MS_ACCESS_TOKEN
-declare ADMIN_GROUP="GE Corporate Mac Users-Admins"
-
-check_support_files
+declare MS_DOMAIN
+declare MSGRAPH_GROUPS=()
+declare localGroups=()
 
 # Get Access token
+msgraph_getdomain
 msgraph_get_access_token
-MS_USER_NAME=$(msgraph_upn_sanity_check $MS_USER_NAME)
-
-# Read in group data and see if user is part of admin group
+msgraph_upn_sanity_check
 msgraph_get_group_data
-adminUser="No"
+
+msgraph_get_group_data
 for item in ${MSGRAPH_GROUPS[@]}; do
-    if [[ "$item" == "$ADMIN_GROUP" ]]; then
-        adminUser="Yes" 
-        echo "INFO: Admin Privlege found"
+    if [[ "${item:l}" == "_rw" ]] || [[ "{$item:l}" == "_ro" ]]; then
+        localGroups+=${item:u}
+        echo "Drive Share: "${item:u}
     fi
 done
-retval=$(/usr/libexec/plistbuddy -c "print EntraAdminRights" $JSS_FILE 2>&1)
-echo "Read : "$retval
+retval=$(/usr/libexec/plistbuddy -c "print DriveMappings" $JSS_FILE 2>&1)
 if [[ "$retval" == *"Does Not Exist"* ]]; then
-    echo "INFO: Creating Admin Field"
-    retval=$(/usr/libexec/plistbuddy -c "add EntraAdminRights string $adminUser" $JSS_FILE 2>&1)
+    echo "INFO: Creating Drive Mapping"
 else
-    echo "INFO: Recording Privlege"
-    retval=$(/usr/libexec/plistbuddy -c "set EntraAdminRights $adminUser" $JSS_FILE 2>&1)
-    [[ ! -z $retval ]] && echo "ERROR: Results of last command: "$retval
+    echo "INFO: Updating existing info"
+    /usr/libexec/PlistBuddy -c "Delete DriveMappings" $JSS_FILE 2>&1
 fi
+retval=$(/usr/libexec/plistbuddy -c "add DriveMappings array $adminUser" $JSS_FILE 2>&1)
+[[ ! -z $retval ]] && {echo "ERROR: Results of last command: "$retval; exit 1;}
+for item in ${localGroups[@]}; do
+    /usr/libexec/PlistBuddy -c "Add DriveMappings: string $item" $JSS_FILE 2>&1
+done
 exit 0
