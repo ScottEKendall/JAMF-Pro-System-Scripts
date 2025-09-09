@@ -50,8 +50,6 @@ function msgraph_getdomain ()
 
     # Append the ".com" part
     MS_DOMAIN="${tmp}.com"
-
-    # Print the result
 }
 
 function msgraph_get_access_token ()
@@ -76,9 +74,9 @@ function msgraph_get_access_token ()
 function msgraph_upn_sanity_check ()
 {
     # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
-    # RETURN: Properly formatted UPN name
+    # RETURN: None
     # PARAMETERS: $1 = User name
-    # EXPECTED: LOGGED_IN_USER, MS_DOMAIN
+    # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
     if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
@@ -93,7 +91,6 @@ function msgraph_upn_sanity_check ()
         # 3) normal short name → user@domain
         MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
     fi
-    echo $MS_USER_NAME
 }
 
 function msgraph_get_group_data ()
@@ -128,13 +125,18 @@ msgraph_get_access_token
 msgraph_upn_sanity_check
 msgraph_get_group_data
 
-msgraph_get_group_data
+# Determine if users have RO or RW in their groupnames.  This denotes legacy drive access
+
 for item in ${MSGRAPH_GROUPS[@]}; do
     if [[ "${item:l}" == "_rw" ]] || [[ "{$item:l}" == "_ro" ]]; then
         localGroups+=${item:u}
         echo "Drive Share: "${item:u}
     fi
 done
+
+# Write out the info it our plist array
+echo "INFO: Plist file: "$JSS_FILE
+
 retval=$(/usr/libexec/plistbuddy -c "print DriveMappings" $JSS_FILE 2>&1)
 if [[ "$retval" == *"Does Not Exist"* ]]; then
     echo "INFO: Creating Drive Mapping"
@@ -142,8 +144,11 @@ else
     echo "INFO: Updating existing info"
     /usr/libexec/PlistBuddy -c "Delete DriveMappings" $JSS_FILE 2>&1
 fi
+
 retval=$(/usr/libexec/plistbuddy -c "add DriveMappings array $adminUser" $JSS_FILE 2>&1)
-[[ ! -z $retval ]] && {echo "ERROR: Results of last command: "$retval; exit 1;}
+# Make sure nothing went wrong while creating the array
+[[ ! -z $retval ]] && {echo "ERROR: Results of last command: "$retval; exit 1;} 
+
 for item in ${localGroups[@]}; do
     /usr/libexec/PlistBuddy -c "Add DriveMappings: string $item" $JSS_FILE 2>&1
 done
