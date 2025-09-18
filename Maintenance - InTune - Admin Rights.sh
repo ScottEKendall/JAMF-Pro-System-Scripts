@@ -3,10 +3,12 @@
 # by: Scott Kendall
 #
 # Written: 09/08/2025
+# Modified: 09/18/25
 
-# Script determines if users is a member of GE Corporate Mac Users-Admins and send results to the user .plist file
+# Script determines if users is a member of inTune admin group and send results to the user .plist file
 # 
 # 1.0 - Initial code
+# 1.1 - Added option to change local user privleges based on inTune group settings
 #
 ######################################################################################################
 #
@@ -30,6 +32,7 @@ JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automaticall
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
 TENANT_ID="$6"
+CHANGE_LOCAL="${7:-"no"}"                       # Yes / No - Change local user privleges to reflect admin rights
 
 ####################################################################################################
 #
@@ -79,26 +82,39 @@ function msgraph_get_access_token ()
 function msgraph_upn_sanity_check ()
 {
     # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
-    # RETURN: Properly formatted UPN name
-    # PARAMETERS: $1 = User name
-    # EXPECTED: LOGGED_IN_USER, MS_DOMAIN
+    # RETURN: None
+    # PARAMETERS: None
+    # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
-    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
-        echo "$LOGGED_IN_USER"
-        return 0
+    CLEAN_USER=""
+    MS_USER_NAME="scottkendall"
+    [[ "$MS_USER_NAME" == *"@"* ]] && CLEAN_USER=$MS_USER_NAME
+    # If the user name doesn't have a "." in it, then it must be formatted correctly so that MS Graph API can find them
+    
+    # if it isn't ormatted correctly, grab it from the users com.microsoft.CompanyPortalMac.usercontext.info
+    if [[ "$CLEAN_USER" != *"."* ]] && [[ -e "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info" ]]; then
+        echo "INFO: Trying to acquire network user name from MS UserContext File"
+        CLEAN_USER=$(/usr/bin/more $SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info | xmllint --xpath 'string(//dict/key[.="aadUserId"]/following-sibling::string[1])' -)
+        echo "INFO: User name found: $CLEAN_USER"
     fi
-    # if it ends with the domain without the “@” → we add the @ sign
-    if [[ "$LOGGED_IN_USER" == *"$MS_DOMAIN" ]]; then
-        CLEAN_USER=${LOGGED_IN_USER%$MS_DOMAIN}
-        MS_USER_NAME="${CLEAN_USER}@${MS_DOMAIN}"
+    
+    # if it still isn't formatted correctly, try the email from the system JSS file
+    
+    if [[ "$CLEAN_USER" != *"."* ]]; then
+        echo "INFO: Trying to acquire network name from $SYSTEM_JSS_FILE"
+        CLEAN_USER=$(/usr/libexec/plistbuddy -c "print 'User Name'" $SYSTEM_JSS_FILE 2>&1)
+        echo "INFO: User name found: $CLEAN_USER"
+    fi
+
+    # if it has the correct domain and formatted properly then assign it the MS_USER_NAME
+    if [[ "$CLEAN_USER" == *"$MS_DOMAIN" && "$CLEAN_USER" == *"."* ]]; then
+        MS_USER_NAME=$CLEAN_USER
     else
         # 3) normal short name → user@domain
         MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
     fi
-    echo $MS_USER_NAME
 }
-
 function msgraph_get_group_data ()
 {
     # PURPOSE: Retrieve the user's Graph API group membership
@@ -114,6 +130,19 @@ function msgraph_get_group_data ()
     done <<< "$response"   
 }
 
+function change_admin_rights ()
+{
+     if [[ ${1:l} == "yes" ]]; then
+        # Elevate user to admin
+        echo "Elevating user to admin"
+        /usr/sbin/dseditgroup -o edit -a "$LOGGED_IN_USER" -t user admin
+    else
+        # Revoke admin rights
+        echo "Removing Admin Rights"
+        /usr/sbin/dseditgroup -o edit -d "$LOGGED_IN_USER" -t user admin
+    fi
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -123,13 +152,14 @@ function msgraph_get_group_data ()
 declare MSGRAPH_GROUPS
 declare MS_DOMAIN
 declare MS_ACCESS_TOKEN
+declare MS_USER_NAME
 declare ADMIN_GROUP="GE Corporate Mac Users-Admins"
 
 check_support_files
 
 # Get Access token
 msgraph_get_access_token
-MS_USER_NAME=$(msgraph_upn_sanity_check $MS_USER_NAME)
+msgraph_upn_sanity_check
 
 # Read in group data and see if user is part of admin group
 msgraph_get_group_data
@@ -141,11 +171,11 @@ for item in ${MSGRAPH_GROUPS[@]}; do
     fi
 done
 retval=$(/usr/libexec/plistbuddy -c "print EntraAdminRights" $JSS_FILE 2>&1)
-echo "Read : "$retval
 if [[ "$retval" == *"Does Not Exist"* ]]; then
     echo "INFO: Creating Admin Field"
     retval=$(/usr/libexec/plistbuddy -c "add EntraAdminRights string $adminUser" $JSS_FILE 2>&1)
 else
+    [[ ${CHANGE_LOCAL:l} == "yes" ]] && change_admin_rights $adminUser
     echo "INFO: Recording Privlege"
     retval=$(/usr/libexec/plistbuddy -c "set EntraAdminRights $adminUser" $JSS_FILE 2>&1)
     [[ ! -z $retval ]] && echo "ERROR: Results of last command: "$retval

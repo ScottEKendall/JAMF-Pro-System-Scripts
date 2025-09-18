@@ -96,8 +96,8 @@ function msgraph_upn_sanity_check ()
     # If the user name doesn't have a "." in it, then it must be formatted correctly so that MS Graph API can find them
     
     # if it isn't ormatted correctly, grab it from the users com.microsoft.CompanyPortalMac.usercontext.info
-    if [[ "$CLEAN_USER" != *"."* ]]; then
-        echo "INFO: Trying to acquire network user name from addUserID String"
+    if [[ "$CLEAN_USER" != *"."* ]] && [[ -e "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info" ]]; then
+        echo "INFO: Trying to acquire network user name from MS UserContext File"
         CLEAN_USER=$(/usr/bin/more $SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info | xmllint --xpath 'string(//dict/key[.="aadUserId"]/following-sibling::string[1])' -)
         echo "INFO: User name found: $CLEAN_USER"
     fi
@@ -110,7 +110,7 @@ function msgraph_upn_sanity_check ()
         echo "INFO: User name found: $CLEAN_USER"
     fi
 
-    # if it ends with the domain without the “@” → we add the @ sign
+    # if it has the correct domain and formatted properly then assign it the MS_USER_NAME
     if [[ "$CLEAN_USER" == *"$MS_DOMAIN" && "$CLEAN_USER" == *"."* ]]; then
         MS_USER_NAME=$CLEAN_USER
     else
