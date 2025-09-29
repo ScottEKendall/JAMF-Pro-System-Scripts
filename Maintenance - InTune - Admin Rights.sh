@@ -115,6 +115,7 @@ function msgraph_upn_sanity_check ()
         MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
     fi
 }
+
 function msgraph_get_group_data ()
 {
     # PURPOSE: Retrieve the user's Graph API group membership
@@ -132,7 +133,7 @@ function msgraph_get_group_data ()
 
 function change_admin_rights ()
 {
-     if [[ ${1:l} == "yes" ]]; then
+    if [[ ${1:l} == "yes" ]]; then
         # Elevate user to admin
         echo "Elevating user to admin"
         /usr/sbin/dseditgroup -o edit -a "$LOGGED_IN_USER" -t user admin
@@ -154,8 +155,11 @@ declare MS_DOMAIN
 declare MS_ACCESS_TOKEN
 declare MS_USER_NAME
 declare ADMIN_GROUP="GE Corporate Mac Users-Admins"
+declare KEEP_ADMIN_ACCOUNTS="localmgr"
 
 check_support_files
+# Exit if this is a local admin account that you don't want to have changed
+[[ "${LOGGED_IN_USER:l}" == "${KEEP_ADMIN_ACCOUNTS:l}" ]] && exit 0
 
 # Get Access token
 msgraph_get_access_token
