@@ -3,12 +3,13 @@
 # by: Scott Kendall
 #
 # Written: 09/08/2025
-# Modified: 09/18/25
+# Modified: 09/29/25
 
 # Script determines if users is a member of inTune admin group and send results to the user .plist file
 # 
 # 1.0 - Initial code
 # 1.1 - Added option to change local user privleges based on inTune group settings
+# 1.2 - Added option to not change predefined local admin accounts
 #
 ######################################################################################################
 #
