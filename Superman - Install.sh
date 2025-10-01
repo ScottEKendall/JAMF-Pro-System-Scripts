@@ -19,8 +19,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
 LoggedInUser=$(echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 UserDir=$(dscl . -read /Users/${LoggedInUser} NFSHomeDirectory | awk '{ print $2 }' )
 
-JAMFClientID="2a23ec74-d3b0-408b-8db4-67c087034de1"
-JAMFSecret="3A3gsIp1fCInS9dWqBH_eh1X6iMvCdDoCC0KtERMAOpHVhf4Rkec6k4w_ndrphOc"
+JAMFClientID="<your client ID>"
+JAMFSecret="<your client secret>"
 osInstallType="${4:-"minor"}"
 osForceVersion="${5:-""}"
 DeferralTime="${6:-"5,30,60,120"}"
