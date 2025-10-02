@@ -16,12 +16,9 @@
 ######################################################################################################
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-USER_HOME="/Users/$LOGGED_IN_USER"
-MS_USER_NAME=$(dscl . read $USER_HOME | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 
-SUPPORT_DIR="$USER_HOME/Library/Application Support"
-USER_JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
-SYSTEM_JSS_FILE="/Library/Managed Preferences/com.jamf.pro.plist"
+SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
+JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
 
 JQ_INSTALL_POLICY="install_jq"
 
@@ -86,33 +83,17 @@ function msgraph_upn_sanity_check ()
 {
     # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
     # RETURN: None
-    # PARAMETERS: None
+    # PARAMETERS: $1 = User name
     # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
-    CLEAN_USER=""
-    MS_USER_NAME="scottkendall"
-    [[ "$MS_USER_NAME" == *"@"* ]] && CLEAN_USER=$MS_USER_NAME
-    # If the user name doesn't have a "." in it, then it must be formatted correctly so that MS Graph API can find them
-    
-    # if it isn't ormatted correctly, grab it from the users com.microsoft.CompanyPortalMac.usercontext.info
-    if [[ "$CLEAN_USER" != *"."* ]] && [[ -e "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info" ]]; then
-        echo "INFO: Trying to acquire network user name from MS UserContext File"
-        CLEAN_USER=$(/usr/bin/more $SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info | xmllint --xpath 'string(//dict/key[.="aadUserId"]/following-sibling::string[1])' -)
-        echo "INFO: User name found: $CLEAN_USER"
+    if [[ "$MS_USER_NAME" == *"@"* ]]; then
+        return 0
     fi
-    
-    # if it still isn't formatted correctly, try the email from the system JSS file
-    
-    if [[ "$CLEAN_USER" != *"."* ]]; then
-        echo "INFO: Trying to acquire network name from $SYSTEM_JSS_FILE"
-        CLEAN_USER=$(/usr/libexec/plistbuddy -c "print 'User Name'" $SYSTEM_JSS_FILE 2>&1)
-        echo "INFO: User name found: $CLEAN_USER"
-    fi
-
-    # if it has the correct domain and formatted properly then assign it the MS_USER_NAME
-    if [[ "$CLEAN_USER" == *"$MS_DOMAIN" && "$CLEAN_USER" == *"."* ]]; then
-        MS_USER_NAME=$CLEAN_USER
+    # if it ends with the domain without the “@” → we add the @ sign
+    if [[ "$LOGGED_IN_USER" == *"$MS_DOMAIN" ]]; then
+        CLEAN_USER=${LOGGED_IN_USER%$MS_DOMAIN}
+        MS_USER_NAME="${CLEAN_USER}@${MS_DOMAIN}"
     else
         # 3) normal short name → user@domain
         MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
@@ -174,6 +155,9 @@ noPasswordEntry="false"
 check_support_files
 check_logged_in_user
 
+MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
+[[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(/usr/libexec/plistbuddy -c "print 'aadUserId'" "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info")
+
 # Routine for getitng the info from MS Intune Graph API
 msgraph_getdomain
 msgraph_get_access_token
@@ -182,7 +166,7 @@ newPasswordDate=$(msgraph_get_password_data)
 
 echo "INFO: Logged-in user (short name): $LOGGED_IN_USER"
 echo "INFO: Resolved UPN for Graph: $MS_USER_NAME"
-echo "INFO: Plist file: $USER_JSS_FILE"
+echo "INFO: Plist file: $JSS_FILE"
 
 # the date of 1601-01-01T00:00:00Z means that a user has never changed their password.  That is the default MS Epoch time...
 if [[ -z $newPasswordDate ]] || [[ "$newPasswordDate" == "null" ]] || [[ "$newPasswordDate" == "1601-01-01T00:00:00Z" ]]; then
@@ -203,7 +187,7 @@ echo "INFO: inTune password date shows: $newPasswordDate"
 echo "INFO: Curent Password Age: $passwordAge"
 
 # Get the value of the date stored in our plist file
-retval=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $USER_JSS_FILE 2>&1)
+retval=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $JSS_FILE 2>&1)
 # If the password is blank, then set it to the calculated value
 [[ "$retval" == *"Does Not Exist"* ]] && {noPasswordEntry="true"; retval="null";}
 [[ -z $retval ]] || [[ "$retval" == "null" ]]  && retval=$newPasswordDate
@@ -222,26 +206,26 @@ fi
 # Store the Password Last Date changed in this file
 if [[ $retval == *"Does Not Exist"* ]] || [[ "$noPasswordEntry" == "true" ]]; then
     # Entry does not exist so lets create it and populate the userPassword into it
-    retval=$(/usr/libexec/plistbuddy -c "add PasswordLastChanged string $newPasswordDate" $USER_JSS_FILE 2>&1)
+    retval=$(/usr/libexec/plistbuddy -c "add PasswordLastChanged string $newPasswordDate" $JSS_FILE 2>&1)
     echo "INFO: Created new key 'PasswordLastChanged' with contents $newPasswordDate"
 else
     #found the key, so let replace (set) it instead
-    retval=$(/usr/libexec/plistbuddy -c "set PasswordLastChanged $newPasswordDate" $USER_JSS_FILE 2>&1)	
+    retval=$(/usr/libexec/plistbuddy -c "set PasswordLastChanged $newPasswordDate" $JSS_FILE 2>&1)	
     echo "INFO: Replaced key 'PasswordLastChanged' with contents $newPasswordDate"
 fi
 [[ ! -z $retval ]] && echo "ERROR: Results of last command: "$retval
 
 # Store the Password Age in this file as well
-retval=$(/usr/libexec/plistbuddy -c "print PasswordAge" $USER_JSS_FILE 2>&1)
+retval=$(/usr/libexec/plistbuddy -c "print PasswordAge" $JSS_FILE 2>&1)
 
 if [[ $retval == *"Does Not Exist"* ]]; then
     # Entry does not exist so lets create it and populate the Password Age into it"
-    retval=$(/usr/libexec/plistbuddy -c "add PasswordAge string $passwordAge" $USER_JSS_FILE 2>&1)
+    retval=$(/usr/libexec/plistbuddy -c "add PasswordAge string $passwordAge" $JSS_FILE 2>&1)
     echo "INFO: Created new key 'PasswordAge' with contents $passwordAge"
 
 else
     #found the key, so let replace (set) it instead
-    retval=$(/usr/libexec/plistbuddy -c "set PasswordAge $passwordAge" $USER_JSS_FILE 2>&1)	
+    retval=$(/usr/libexec/plistbuddy -c "set PasswordAge $passwordAge" $JSS_FILE 2>&1)	
     echo "INFO: Replaced key 'PasswordAge' with contents $passwordAge"
 fi
 [[ ! -z $retval ]] && echo "ERROR: Results of last command: "$retval

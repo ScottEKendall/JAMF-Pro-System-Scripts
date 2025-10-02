@@ -14,11 +14,12 @@
 # Gobal "Common" variables
 #
 ######################################################################################################
+#[[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
-
+MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
 SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
+[[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(cat $SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info | grep "@" | awk -F'[<>]' '{print $3}')
 JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
 
 JQ_INSTALL_POLICY="install_jq"
@@ -82,7 +83,10 @@ function msgraph_upn_sanity_check ()
     # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
-    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
+    if [[ "$MS_USER_NAME" == *"@"* ]]; then
+        return 0
+    
+    elif [[ "$LOGGED_IN_USER" == *"@"* ]]; then
         MS_USER_NAME="${LOGGED_IN_USER}"
         return 0
     fi
@@ -112,6 +116,14 @@ function msgraph_get_group_data ()
     done <<< "$response"   
 }
 
+function check_logged_in_user () 
+{
+    if [[ ! -n "$LOGGED_IN_USER" ]]; then
+        echo "No user is logged in"
+        exit 0
+    fi
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -124,6 +136,7 @@ declare MSGRAPH_GROUPS=()
 declare localGroups=()
 
 # Get Access token
+check_logged_in_user
 msgraph_getdomain
 msgraph_get_access_token
 msgraph_upn_sanity_check
@@ -139,6 +152,7 @@ done
 
 # Write out the info it our plist array
 echo "INFO: Plist file: "$JSS_FILE
+echo "INFO: EntraID: "$MS_USER_NAME
 
 retval=$(/usr/libexec/plistbuddy -c "print DriveMappings" $JSS_FILE 2>&1)
 if [[ "$retval" == *"Does Not Exist"* ]]; then

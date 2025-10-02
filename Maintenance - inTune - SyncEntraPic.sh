@@ -17,7 +17,6 @@
 ######################################################################################################
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 
 PHOTO_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JSS_FILE="$PHOTO_DIR/com.GiantEagleEntra.plist"
@@ -84,8 +83,7 @@ function msgraph_upn_sanity_check ()
     # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
-    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
-        echo "$LOGGED_IN_USER"
+    if [[ "$MS_USER_NAME" == *"@"* ]]; then
         return 0
     fi
     # if it ends with the domain without the “@” → we add the @ sign
@@ -181,6 +179,10 @@ declare MS_DOMAIN
 declare MS_ACCESS_TOKEN
 
 check_logged_in_user
+
+MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
+[[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(/usr/libexec/plistbuddy -c "print 'aadUserId'" "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info")
+
 # Get Access token
 msgraph_getdomain
 msgraph_get_access_token

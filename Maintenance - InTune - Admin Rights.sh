@@ -18,7 +18,7 @@
 ######################################################################################################
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
+#MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
 JQ_INSTALL_POLICY="install_jq"
@@ -84,33 +84,17 @@ function msgraph_upn_sanity_check ()
 {
     # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
     # RETURN: None
-    # PARAMETERS: None
+    # PARAMETERS: $1 = User name
     # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
 
     # if the local name already contains “@”, then it should be good
-    CLEAN_USER=""
-    MS_USER_NAME="scottkendall"
-    [[ "$MS_USER_NAME" == *"@"* ]] && CLEAN_USER=$MS_USER_NAME
-    # If the user name doesn't have a "." in it, then it must be formatted correctly so that MS Graph API can find them
-    
-    # if it isn't ormatted correctly, grab it from the users com.microsoft.CompanyPortalMac.usercontext.info
-    if [[ "$CLEAN_USER" != *"."* ]] && [[ -e "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info" ]]; then
-        echo "INFO: Trying to acquire network user name from MS UserContext File"
-        CLEAN_USER=$(/usr/bin/more $SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info | xmllint --xpath 'string(//dict/key[.="aadUserId"]/following-sibling::string[1])' -)
-        echo "INFO: User name found: $CLEAN_USER"
+    if [[ "$MS_USER_NAME" == *"@"* ]]; then
+        return 0
     fi
-    
-    # if it still isn't formatted correctly, try the email from the system JSS file
-    
-    if [[ "$CLEAN_USER" != *"."* ]]; then
-        echo "INFO: Trying to acquire network name from $SYSTEM_JSS_FILE"
-        CLEAN_USER=$(/usr/libexec/plistbuddy -c "print 'User Name'" $SYSTEM_JSS_FILE 2>&1)
-        echo "INFO: User name found: $CLEAN_USER"
-    fi
-
-    # if it has the correct domain and formatted properly then assign it the MS_USER_NAME
-    if [[ "$CLEAN_USER" == *"$MS_DOMAIN" && "$CLEAN_USER" == *"."* ]]; then
-        MS_USER_NAME=$CLEAN_USER
+    # if it ends with the domain without the “@” → we add the @ sign
+    if [[ "$LOGGED_IN_USER" == *"$MS_DOMAIN" ]]; then
+        CLEAN_USER=${LOGGED_IN_USER%$MS_DOMAIN}
+        MS_USER_NAME="${CLEAN_USER}@${MS_DOMAIN}"
     else
         # 3) normal short name → user@domain
         MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
@@ -145,6 +129,14 @@ function change_admin_rights ()
     fi
 }
 
+function check_logged_in_user () 
+{
+    if [[ ! -n "$LOGGED_IN_USER" ]]; then
+        echo "No user is logged in"
+        exit 0
+    fi
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -158,9 +150,14 @@ declare MS_USER_NAME
 declare ADMIN_GROUP="GE Corporate Mac Users-Admins"
 declare KEEP_ADMIN_ACCOUNTS="localmgr"
 
-check_support_files
+check_logged_in_user
 # Exit if this is a local admin account that you don't want to have changed
 [[ "${LOGGED_IN_USER:l}" == "${KEEP_ADMIN_ACCOUNTS:l}" ]] && exit 0
+
+#MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
+[[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(/usr/libexec/plistbuddy -c "print 'aadUserId'" "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info")
+
+check_support_files
 
 # Get Access token
 msgraph_get_access_token
@@ -168,11 +165,14 @@ msgraph_upn_sanity_check
 
 # Read in group data and see if user is part of admin group
 msgraph_get_group_data
+echo "INFO: Logged-in user (short name): $LOGGED_IN_USER"
+echo "INFO: Resolved UPN for Graph: $MS_USER_NAME"
+echo "INFO: Plist file: $JSS_FILE"
 adminUser="No"
 for item in ${MSGRAPH_GROUPS[@]}; do
     if [[ "$item" == "$ADMIN_GROUP" ]]; then
         adminUser="Yes" 
-        echo "INFO: Admin Privlege found"
+        echo "INFO: Admin Privilege found"
     fi
 done
 retval=$(/usr/libexec/plistbuddy -c "print EntraAdminRights" $JSS_FILE 2>&1)
@@ -181,7 +181,7 @@ if [[ "$retval" == *"Does Not Exist"* ]]; then
     retval=$(/usr/libexec/plistbuddy -c "add EntraAdminRights string $adminUser" $JSS_FILE 2>&1)
 else
     [[ ${CHANGE_LOCAL:l} == "yes" ]] && change_admin_rights $adminUser
-    echo "INFO: Recording Privlege"
+    echo "INFO: Recording Privilege"
     retval=$(/usr/libexec/plistbuddy -c "set EntraAdminRights $adminUser" $JSS_FILE 2>&1)
     [[ ! -z $retval ]] && echo "ERROR: Results of last command: "$retval
 fi
