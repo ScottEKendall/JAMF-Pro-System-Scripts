@@ -18,7 +18,6 @@
 ######################################################################################################
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-#MS_USER_NAME=$(dscl . read /Users/$LOGGED_IN_USER | grep "NetworkUser" | awk -F ':' '{print $2}' | xargs)
 SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"
 JQ_INSTALL_POLICY="install_jq"
@@ -154,7 +153,7 @@ check_logged_in_user
 # Exit if this is a local admin account that you don't want to have changed
 [[ "${LOGGED_IN_USER:l}" == "${KEEP_ADMIN_ACCOUNTS:l}" ]] && exit 0
 
-#MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
+MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
 [[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(/usr/libexec/plistbuddy -c "print 'aadUserId'" "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info")
 
 check_support_files
