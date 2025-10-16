@@ -494,8 +494,8 @@ supportTeamPhone="+1-888-826-3193 (US) / +0008000404315 (Intl) "
 supportTeamEmail="Technology.ServiceDesk@gianteagle.com"
 supportTeamWebsite="https://gianteagle.service-now.com/ge"
 supportTeamHyperlink="[${supportTeamWebsite}](${supportTeamWebsite})"
-supportKB="KB0015198    "
-infobuttonaction="https://gianteagle.service-now.com/ge?id=search&spa=1&q=macos=${supportKB}"
+supportKB="KB0015236"
+infobuttonaction="https://gianteagle.service-now.com/ge?sys_kb_id=1aab77872b4436103208f644ce91bf2d&id=kb_article_view&sysparm_rank=7&sysparm_tsqueryId=dd24aeb22b6832143208f644ce91bfb0"
 supportKBURL="[${supportKB}](${infobuttonaction})"
 
 
@@ -1040,7 +1040,11 @@ function dialogInstall() {
     else
 
         # Display a so-called "simple" dialog if Team ID fails to validate
-        osascript -e 'display dialog "Please advise your Support Representative of the following error:• Dialog Team ID verification failed" with title "Mac Health Check Error" buttons {"Close"} with icon caution'
+        osascript -e 'display dialog "Please advise your Support Representative of the following error:
+
+• Dialog Team ID verification failed
+
+" with title "Mac Health Check Error" buttons {"Close"} with icon caution'
         completionActionOption="Quit"
         exitCode="1"
         quitScript
