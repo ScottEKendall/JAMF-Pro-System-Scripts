@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 07/28/2025
+# Last updated: 10/30/2025
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
 #
@@ -19,6 +19,7 @@
 # 1.4 - Made the UserTCC keys a "static" array so that it can be checked against bundles better
 # 1.5 - Code clean up and better determination of mode of TCC Key
 # 1.6 - Check for existance of application before proceeding
+# 1.7 - Check for presence of jq and install if necessary
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -97,6 +98,7 @@ HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -182,6 +184,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
