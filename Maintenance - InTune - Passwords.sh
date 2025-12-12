@@ -158,7 +158,7 @@ check_logged_in_user
 MS_USER_NAME=$(dscl . read /Users/${LOGGED_IN_USER} AltSecurityIdentities 2>&1 | grep "PlatformSSO" | awk -F ':' '{ print $NF }')
 [[ -z $MS_USER_NAME ]] && MS_USER_NAME=$(/usr/libexec/plistbuddy -c "print 'aadUserId'" "$SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info")
 
-# Routine for getitng the info from MS Intune Graph API
+# Routine for getting the info from MS Intune Graph API
 msgraph_getdomain
 msgraph_get_access_token
 msgraph_upn_sanity_check
@@ -184,7 +184,7 @@ fi
 passwordAge=$(calculate_days_between "$newPasswordDate")
 
 echo "INFO: inTune password date shows: $newPasswordDate"
-echo "INFO: Curent Password Age: $passwordAge"
+echo "INFO: Current Password Age: $passwordAge"
 
 # Get the value of the date stored in our plist file
 retval=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $JSS_FILE 2>&1)

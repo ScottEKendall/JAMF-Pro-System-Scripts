@@ -33,6 +33,7 @@ CLIENT_ID="$4"
 CLIENT_SECRET="$5"
 TENANT_ID="$6"
 CHANGE_LOCAL="${7:-"no"}"                       # Yes / No - Change local user privleges to reflect admin rights
+ADMIN_GROUP="$8"
 
 ####################################################################################################
 #
@@ -146,7 +147,6 @@ declare MSGRAPH_GROUPS
 declare MS_DOMAIN
 declare MS_ACCESS_TOKEN
 declare MS_USER_NAME
-declare ADMIN_GROUP="GE Corporate Mac Users-Admins"
 declare KEEP_ADMIN_ACCOUNTS="localmgr"
 
 check_logged_in_user
