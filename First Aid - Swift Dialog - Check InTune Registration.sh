@@ -1,68 +1,108 @@
 #!/bin/zsh
 
+# EntraIDRegistration
+#
+# by: Scott Kendall
+#
+# Written: 02/03/2025
+# Last updated: 11/15/2025
+#
+# Script Purpose: Backup the keychain file and delete the current keychain file(s)
+#
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistent with all apps
+# 1.2 - Fixed issue of Register button not running the JAMF policy
+# 1.3 - Removed debug code and fix incorrect message on failure dialog
+# 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.5 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
+#
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="EntraIDRegistration"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SW_DIALOG="/usr/local/bin/dialog"
-
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="/Applications/Company Portal.app"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-SD_WPJ_IMAGE="${SUPPORT_DIR}/SupportFiles/WPJKeychain.png"
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-IMAGE_ICON="computer"
-
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-BANNER_TEXT_PADDING="      "
-SD_INFO_BOX_MSG=""
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}EntraID Registration"
-REGISTRATION_POLICY=9
 
 # Swift Dialog version requirements
 
+SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+/bin/chmod 666 "${JSON_OPTIONS}"
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}EntraID Registration"
+OVERLAY_ICON="/Applications/Company Portal.app"
+SD_WPJ_IMAGE="${SUPPORT_DIR}/SupportFiles/WPJKeychain.png"
+
+REGISTRATION_POLICY=9
+SD_INFO_BOX_MSG=""
 inTuneStatus=""
-logmessage=""
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
 #
 # Functions
 #
 ####################################################################################################
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -70,7 +110,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -89,7 +130,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -127,7 +167,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_WPJ_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -138,13 +178,20 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##
-"
-	#SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit $1
 }
 
 function check_inTune_Registration ()
@@ -208,7 +255,6 @@ function construct_welcomemsg ()
   messagebody="**${inTuneStatus}**<br><br>"
   messageimage=""
   showRegisterButton=''
-  noInTuneLaunch="No"
 
   case "${inTuneStatus}" in
 
@@ -218,8 +264,6 @@ function construct_welcomemsg ()
       messagebody+="obtained your Entra ID."
       messageimage="${SD_WPJ_IMAGE}"
       messageimagecpation="Remember, if you get a prompt similar to this, type in your password and click on \"Always Allow\""
-      NoInTuneLaunch="Yes"
-      logmessage="Registered"
       ;;
     
     "Platform SSO registered but AAD ID not acquired" | "WPJ Key Present. AAD ID not acquired" )
@@ -229,21 +273,18 @@ function construct_welcomemsg ()
       messagebody+=" will try again within the next two hours, or you can manually do it"
       messagebody+=" by clicking on the 'Register' button."
       showRegisterButton='Register'
-      logmessage="AAD ID not acquired"
       ;;
     
     "WPJ Key present, JamfAAD PLIST missing" )
       messagebody+="There is a problem.  You have a WPJ certificate in your keychain, and the Company Portal application was probably run, but \"Register with EntraID\" "
       messagebody+="has not. Please click on the \"Register\" below."
       showRegisterButton='Register'
-      logmessage="JamfAD PLIST missing"
       ;;
 
     "Not Registered for user home" )
       messagebody+="There is a problem.  You do not have a WPJ certificate in your Keychain.  You will probably have issues "
       messagebody+="accessing your Microsoft applications. Please click on \"Register\" to fix this issue."
       showRegisterButton='Register'
-      logmessage="Not Registered for User Home"
 
   esac
 }
@@ -253,32 +294,29 @@ function welcomemsg ()
 
   MainDialogBody=(
     --message "${messagebody}"
-	--icon computer
+    --icon computer
     --overlayicon "${OVERLAY_ICON}"
-    --titlefont shadow=1
-	--height 520
-	--ontop
+    --height 520
+    --ontop
     --image "${messageimage}"
     --imagecaption "${messageimagecpation}"
-	--bannerimage "${SD_BANNER_IMAGE}"
-	--bannertitle "${SD_WINDOW_TITLE}"
+    --bannerimage "${SD_BANNER_IMAGE}"
+    --bannertitle "${SD_WINDOW_TITLE}"
     --infobox "${SD_INFO_BOX_MSG}"
     --titlefont shadow=1
     --alignment center
     --moveable
-	--button1text "OK"
+    --button1text "OK"
     --button2text "${showRegisterButton}"
-	--buttonstyle center
+    --buttonstyle center
   )
 
 	# Show the dialog screen and allow the user to choose
 
-	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+		"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
     button=$?
-    [[ $button == 2 && "${NoInTuneLaunch}" == "No" ]] && /usr/local/bin/jamf policy -id ${REGISTRATION_POLICY}
+    [[ $button == 2 && "${showRegisterButton}" == "Register" ]] && /usr/local/bin/jamf policy -id $REGISTRATION_POLICY
 }
-
-
 
 ####################################################################################################
 #
@@ -292,7 +330,6 @@ check_swift_dialog_install
 check_support_files
 create_infobox_message
 check_inTune_Registration
-logMe "${logmessage}"
 construct_welcomemsg
 welcomemsg
 exit 0

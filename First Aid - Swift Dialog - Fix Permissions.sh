@@ -1,54 +1,101 @@
 #!/bin/zsh
-
+#
 # FixProfileOwner
-
-# Written: Sep 20, 2022
-# Last updated: Dec 07, 2023
-# by: Scott Kendall (w491008)
+#
+# by: Scott Kendall
+#
+# Written: 9/20/2023
+# Last updated: 11/15/2025
 #
 # Script Purpose: change the permissions on the files in the users directory so that they are the owner of all the files
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
-# 1.1 - Merge updated global library functions into app
+# 1.1 - Code cleanup to be more consistent with all apps
+# 1.2 - Changed logic in get_total_app_count function to use find | wc (much faster)
+# 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.4 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="FixProfileOwner"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-SW_DIALOG="/usr/local/bin/dialog"
-SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="/Library/Application Support/GiantEagle/logs"
-LOG_FILE="${LOG_DIR}/FixPermissions.log"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-# have to "pad" the text title to accomodate for the hardcoded banner image we currently display, this will make it more centered on the screen (5 spaces)
-BANNER_TEXT_PADDING="     "
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Fix Profile Ownership"
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-chmod 777 "${DIALOG_COMMAND_FILE}"
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-
-typeset -i total_app_count=0
-typeset SD_INFO_BOX_MSG
 
 # Swift Dialog version requirements
 
-[[ -e "/usr/local/bin/dialog" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-USER_SCAN_DIR="${USER_DIR}"
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files for this app
+
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+/bin/chmod 666 "${DIALOG_COMMAND_FILE}"
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Fix Profile Ownership"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+
+USER_SCAN_START_DIR="${USER_DIR}"
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################
+
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
 #
-# Global Functions
+# Functions
 #
 ####################################################################################################
 
@@ -59,7 +106,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -78,7 +126,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -127,13 +174,20 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##
-"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
 }
 
 function update_display_list ()
@@ -163,7 +217,7 @@ function update_display_list ()
         "create" | "show" )
  
             # Display the Dialog prompt
-            eval "${DYNAMIC_DIALOG_BASE_STRING}"
+            eval "${DIALOG_COMMAND_FILE}"
             ;;
      
         "add" )
@@ -300,26 +354,26 @@ function show_welcome_message ()
     # Purpose: Display dialog message to user 
     # Return: None
 
-    ${SW_DIALOG} \
-        --message "Please wait while determining which files to analyze...<br>Starting the scan at folder: ${USER_SCAN_DIR}" \
-        --messagealignment center \
-        --icon "${SD_ICON_FILE}" \
-        --iconsize 128 \
-        --overlayicon computer \
-        --bannerimage "${SD_BANNER_IMAGE}" \
-        --bannertitle "${SD_WINDOW_TITLE}" \
-        --titlefont shadow=1 \
-        --moveable \
-        --quitkey Q \
-        --titlefont shadow=1, size=24 \
-        --messagefont size=18 \
-        --width 770 \
-        --height 350 \
-        --button1disabled \
-        --commandfile "${DIALOG_COMMAND_FILE}" \
-        --button1text "none" \
-        --progress \
-        --ontop & sleep 0.5
+    MainDialogBody=(
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}. Please wait while determining which files to analyze...<br><br>Starting the scan at folder: ${USER_SCAN_START_DIR}"
+        --icon "${SD_ICON_FILE}"
+        --iconsize 128
+        --overlayicon computer
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --moveable
+        --titlefont shadow=1, size=24
+        --messagefont size=18
+        --width 770
+        --height 350
+        --button1disabled
+        --commandfile "${DIALOG_COMMAND_FILE}"
+        --button1text "none"
+        --progress
+        --ontop
+    )
+
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null & sleep 0.5
 
 }
 
@@ -329,12 +383,8 @@ function get_total_app_count ()
     # Return: None
     # Expectations: total_app_count needs to be a global var
     #
-    update_display_list "progress" "" "" "" "Performing Directory Scan"
-    for file in ${USER_SCAN_DIR}/**/*(.); do
-        update_display_list "progress" "" "" "" "Files found so far: $total_app_count" 0
-        total_app_count+=1
-    done
-    update_display_list "progress" "" "" "" "" 100
+    update_display_list "progress" "" "" "" "Determining Total # of files"
+    total_app_count=$(find ${USER_SCAN_START_DIR} -type f | wc -l)
 }
 
 function change_permissions ()
@@ -346,10 +396,10 @@ function change_permissions ()
     typeset -i appcounter=0
     # Change owernship of all the files in the user's home folder to correct ID
 
-    update_display_list "clear" "Changing the permissions to make sure you are the owner,<br> and your files are set correctly."
-    for file in  ${USER_SCAN_DIR}/**/*(.); do
+     update_display_list "clear" "Changing the permissions to make sure you are the owner,<br> and your files are set correctly."
+    for file in  ${USER_SCAN_START_DIR}/**/*(.); do
         chown $LOGGED_IN_USER ${file}
-        progress_percentage=$((appcounter*100/total_app_count))
+        progress_percentage=$(((appcounter*100)/total_app_count))
         update_display_list "progress" "" "" "" "Fixing Permisions on: $appcounter of $total_app_count files" "$progress_percentage"
         appcounter+=1
     done
@@ -364,36 +414,24 @@ function change_permissions ()
     if [[ -e ${UserDir}/.toolsenv ]]; then
         chown root:wheel ${UserDir}/.toolsenv
     fi
-
 }
 
-function cleanup_and_exit ()
-{
-    # Purpose: Remove any temp files and exit the script
-    # Return: 0 for successful
-
-    /bin/rm ${DIALOG_COMMAND_FILE}
-	exit 0
-}
-
-####################################################################################################
+#############################
 #
-# Auto Load Functions
+# Start of Main Script
 #
-####################################################################################################
+#############################
+
+typeset -i total_app_count && total_app_count=0
 
 autoload 'is-at-least'
 
-#############################
-# Start of Main Script
-#############################
-
 check_swift_dialog_install
 check_support_files
-create_infobox_message
 show_welcome_message
 get_total_app_count
-sleep 2  #sleep a bit so the user can see the progress status
+sleep 4  #sleep a bit so the user can see the progress status
 change_permissions
+sleep 4
 update_display_list "Destroy"
 cleanup_and_exit

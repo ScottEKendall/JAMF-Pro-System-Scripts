@@ -5,19 +5,24 @@
 # by: Scott Kendall
 #
 # Written: 09/03/2025
-# Last updated: 09/03/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: Change users personal recovery key and escrow to server
 #
 # 1.0 - Initial
-
+# 1.1 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="ChangeFVKey"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -36,33 +41,38 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
-
-#JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
-#TMP_FILE_STORAGE=$(mktemp /var/tmp/AppDelete.XXXXX)
-#/bin/chmod 666 $JSON_OPTIONS
-#/bin/chmod 666 $TMP_FILE_STORAGE
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files for this app
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/ChangeFVKey.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Change FileVault Key"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="SF=wrench.and.screwdriver.fill,color=blue"
-#OVERLAY_ICON="${ICON_FILES}ToolbarCustomizeIcon.icns"
 SD_ICON="${ICON_FILES}FileVaultIcon.icns"
 
 # Trigger installs for Images & icons
@@ -173,7 +183,18 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+	exit $1
+}
+
+function check_for_sudo_access () 
+{
+  # Check if the effective user ID is 0.
+  if [[ $EUID -ne 0 ]]; then
+    # Print an error message to standard error.
+    echo "This script must be run with root privileges. Please use sudo." >&2
+    # Exit the script with a non-zero status code.
+    cleanup_and_exit 1
+  fi
 }
 
 function welcomemsg ()
@@ -196,7 +217,7 @@ function welcomemsg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
         --moveable
-        --height 500
+        --height 460
         --width 820
         --ignorednd
         --quitkey 0
@@ -211,7 +232,7 @@ function welcomemsg ()
 	returnval=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
 
-    [[ $returnCode == 2 || $returnCode == 10 ]] && {logMe "INFO: User exiting without changes"; cleanup_and_exit;}
+    [[ $returnCode == 2 || $returnCode == 10 ]] && {logMe "INFO: User exiting without changes"; cleanup_and_exit 0;}
 
     # retrieve the password
 
@@ -235,15 +256,42 @@ function regen_and_escrow ()
     # EXPECTED: None
     logMe "Generating a new FV Key and escrow to server"
 
-    result=$(expect -c "
+    fdeSetupOutput=$(expect -c "
     spawn fdesetup changerecovery -personal -user ${LOGGED_IN_USER}
     expect \"Enter the password for user ${LOGGED_IN_USER}:\"
-    send '${userPass}'
+    send '${userPass}'\r
     expect eof
     ")
 
     # Log the results
-    logMe $result
+    logMe $fdeSetupOutput
+    show_end_prompt
+}        
+
+function regen_and_escrow_alt ()
+{
+fdeSetupOutput="$(/usr/bin/fdesetup changerecovery -verbose -personal -inputplist << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Username</key>
+	<string>$LOGGED_IN_USER</string>
+	<key>Password</key>
+	<string>$userPass</string>
+</dict>
+</plist>
+EOF
+)"
+
+# Log the results
+logMe $fdeSetupOutput
+show_end_prompt
+
+}
+
+function show_end_prompt()
+{
 
     logMe "Forcing JAMF recon to escrow token"
     /usr/local/bin/jamf recon
@@ -254,7 +302,7 @@ function regen_and_escrow ()
         --height 200 \
         --mini \
         --bannertitle "FileVault Key"
-}        
+}
 
 ####################################################################################################
 #
@@ -267,6 +315,7 @@ declare userPass
 
 autoload 'is-at-least'
 
+check_for_sudo_access
 create_log_directory
 check_swift_dialog_install
 check_support_files
@@ -274,7 +323,7 @@ create_infobox_message
 
 isFVEanbled=$(checkFVStatus)
 
-if [[ $isFVEanbled == "true" ]]; then
+if [[ $isFVEanbled == "false" ]]; then
     logMe "WARNING: No FV key found, prompting user to create key"
     message="It doesn't appear that you have a FileVault key assigned to your account. This key is necessary to allow you into your computer in case you forget your login password.<br><br>Please enter your login password to create a new key"
     welcomemsg $message "password" "warning"
@@ -287,7 +336,9 @@ while true; do
     # Test the entered admin password
     if dscl /Local/Default -authonly "${LOGGED_IN_USER}" "${userPass}" &>/dev/null; then
         logMe "Password Verified"
-        regen_and_escrow
+        # Both methods should work, but use different approaches to the do the same thing...your choice on which one to use
+        #regen_and_escrow
+        regen_and_escrow_alt
         break
     fi
     welcomemsg "Password verification failed for $LOGGED_IN_USER.  Please try again" "password" "warning"

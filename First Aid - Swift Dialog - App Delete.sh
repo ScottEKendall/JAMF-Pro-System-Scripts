@@ -1,76 +1,109 @@
 #!/bin/zsh
 #
-# App Delete
-# Purpose: Allow end users to delete apps using Swift Dialog
+# AppDelete
+# Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
-# Written: Aug 3, 2022
-# Last updated: Feb 13, 2025
+# Written: 8/3/2022
+# Last updated: 11/15/2025
 #
-# v1.0 - Initial Release
-# v1.1 - Major code cleanup & documentation
-#		 Structred code to be more inline / consistent across all apps
-#
+# 1.0 - Initial Release
+# 1.1 - Major code cleanup & documentation
+#		Structured code to be more inline / consistent across all apps
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 2.0 - Bumped Swift Dialog min version to 2.5.0
+#		NEW: Added option to allow folders to be deleted (ALLOWED_FOLDERS)
+#		Put shadows in the banner text
+# 		Reordered sections to better show what can be modified
+# 2.1 - Added option to sort array (case insensitive) after the application scan & folders added 
+# 2.2 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="AppDelete"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-
-JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
-TMP_FILE_STORAGE=$(mktemp /var/tmp/AppDelete.XXXXX)
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_INFO_BOX_MSG=""
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+/bin/chmod 666 $JSON_OPTIONS
+/bin/chmod 666 $TMP_FILE_STORAGE
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+OVERLAY_ICON="/System/Applications/App Store.app"
+SD_ICON_FILE="SF=trash.fill, color=black, weight=light"
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+
 # The follow array lists the apps that the users are not allowed to remove.  If the apps show up in the list, they do not appear in the list of apps that can be deleted
-MANAGED_APPS=(
+NOT_ALLOWED_APPS=(
     "Company Portal" 
 	"Falcon"
     "Jamf Connect"
 	"Self Service"
-    "Self Service+"
-    "Support"
+	"Self Service+"
     "ZScaler")
+
+# This list of items is for folders that are allowed to be deleted.  Some applications install themselves into a subfolder underneath /Applications, so you can hardcode which folders are allowed.
+# Include just the folder names in this array (ie. Utilities), not the entire path
+ALLOWED_FOLDERS=(
+	"Zscaler Copy"
+	"Utilities copy"
+	"Cisco copy")
 
 ##################################################
 #
@@ -78,7 +111,7 @@ MANAGED_APPS=(
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
@@ -94,7 +127,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesnt exist - create it and set the permissions (using zsh paramter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -113,7 +147,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -163,19 +196,16 @@ function cleanup_and_exit ()
 
 function create_infobox_message()
 {
-	################################
-	#
-	# Swift Dialog InfoBox message construct
-	#
-	################################
+    # PURPOSE: Construct the infobox dialog msg
+    # PARMS: None
+    # RETURN: None
 
-	SD_INFO_BOX_MSG="## System Info ##
-"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 ####################################################################################################
@@ -184,47 +214,47 @@ function create_infobox_message()
 #
 ####################################################################################################
 
-
-function create_filelist_json_blob ()
-{
-	######################
-	#
-	# Swift Dialog BLOB file for prompts
-	#
-	######################
-
-	echo '{"checkboxstyle" : {
-			"style" : "switch",
-			"size" : "regular" },' > ${JSON_OPTIONS}
-}
-
 function build_file_list_array ()
 {
-	typeset -a tmp_array
-	typeset saved_IFS=$IFS
+	# PURPOSE: Build the Array of items that can be removed, delete the items that are not allowed and then add in the folders
+    # PARMS: None
+    # RETURN: None
 
-	IFS=$'
-'
-	FILES_LIST=( $(/usr/bin/find /Applications/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{ print $3 }' | /usr/bin/awk -F '.app' '{ print $1 }'))
-	${IFS+':'} unset saved_IFS
+	declare -a tmp_array
+	declare saved_IFS=$IFS
+
+	IFS=$'\n'
+	FILES_LIST=( $(/usr/bin/find /Applications/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{print $NF}' | /usr/bin/awk -F '.app' '{print $1}') )
+	IFS=$saved_IFS
 
 	# remove the items from array that are in the Managed apps array
 
-	for i in "${MANAGED_APPS[@]}"; do FILES_LIST=("${FILES_LIST[@]/$i}") ; done
+	for i in "${NOT_ALLOWED_APPS[@]}"; do FILES_LIST=("${FILES_LIST[@]/$i}") ; done
 
 	# Add only the non-empty items into the tmp_array
 
 	for i in "${FILES_LIST[@]}"; do [[ -n "$i" ]] && tmp_array+=("${i}") ; done
 
-	# copy the newly created array back into the working array
+	# Add in any allowed folders into the array
 
-	FILES_LIST=(${tmp_array[@]})
+	for i in "${ALLOWED_FOLDERS[@]}"; do [[ -e "/Applications/${i}" ]] && tmp_array+=("${i}") ; done
+
+	# And finally sort the array alphabetically (case insensitive)
+
+	FILES_LIST=(${(U)tmp_array[@]})
 }
 
 function construct_display_list ()
 {
+	# PURPOSE: Construct the Swift Dialog JSON blob for the listitem
+    # PARMS: None
+    # RETURN: None
 
-	# Construct the Swift Dialog display list based on files that can be deleted
+	echo '{"checkboxstyle" : {
+		"style" : "switch",
+		"size" : "regular" },' > ${JSON_OPTIONS}
+
+	# Construct the Swift Dialog list item display list based on files that can be deleted
 
 	if [[ ${#FILES_LIST[@]} -ne 0 ]]; then
 
@@ -232,7 +262,11 @@ function construct_display_list ()
 
 		echo ' "checkbox" : [' >> ${JSON_OPTIONS}
 		for i in "${FILES_LIST[@]}"; do
-			echo '{"label" : "'"${i}"'", "checked" : false, "disabled" : false, "icon" : "/Applications/'${i}'.app" },' >> "${JSON_OPTIONS}"
+			if [[ -f "/Applications/${i}.app/Contents/Info.plist" ]]; then
+				echo '{"label" : "'"${i}"'", "checked" : false, "disabled" : false, "icon" : "/Applications/'${i}'.app" },' >> "${JSON_OPTIONS}"
+			elif [[ -d "/Applications/${i}" ]]; then
+				echo '{"label" : "'"${i}"'", "checked" : false, "disabled" : false, "icon" : "'${ICON_FILES}/ApplicationsFolderIcon.icns'" },' >> "${JSON_OPTIONS}"
+			fi
 		done
 		echo ']}' >> "${JSON_OPTIONS}"
 		chmod 644 "${JSON_OPTIONS}"
@@ -243,23 +277,24 @@ function construct_display_list ()
 function choose_files_to_delete ()
 {
 	MainDialogBody=(
-        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. Please choose the application(s) that you want to remove from your system.  They can be installed again from Self Service."
+		--message "$SD_DIALOG_GREETING $SD_FIRST_NAME. Please choose the application(s) and/or folder(s) that you want to remove from your system.  Applications can be installed again from Self Service."
 		--messageposition top
-		--icon "SF=trash.fill, color=black, weight=light"
-		--overlayicon "/System/Applications/App Store.app"
+		--icon "${SD_ICON_FILE}"
+		--overlayicon "${OVERLAY_ICON}"
 		--moveable
 		--bannerimage "${SD_BANNER_IMAGE}"
+		--titlefont shadow=1
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-        --helpmessage "Choose which applications you want to remove. <br>They can be installed again from Self Service."
+		--helpmessage "Choose which applications you want to remove. <br>They can be installed again from Self Service."
 		--width 920
 		--height 750
+		--ontop
 		--buttonstyle center
 		--infobox "${SD_INFO_BOX_MSG}"
 		--jsonfile "${JSON_OPTIONS}"
 		--quitkey 0
 		--button1text "Next"
-        --button2text "Cancel"
+		--button2text "Cancel"
 		--json
     )
 
@@ -271,31 +306,35 @@ function choose_files_to_delete ()
 	[[ ${buttonpress} -eq 2 || ${buttonpress} -eq 10 ]] && cleanup_and_exit
 
 	# Strip out the files that they did not choose
-
 	echo $tmp | grep -v ": false" > "${TMP_FILE_STORAGE}"
 }
 
 function read_in_file_contents ()
 {
+	# PURPOSE: Read in the file list of the options that the user chose to remove
+    # PARMS: None
+    # RETURN: None
+
 	messagebody=""
 	while read -r line; do
 		name=$( echo "${line}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
-		[[ -e "/Applications/${name}.app" ]] && messagebody+="- ${name}  
-"
+		if [[ -e "/Applications/${name}.app" ]]; then
+			messagebody+="- ${name}  \n"
+		elif [[ -d "/Applications/${name}" ]]; then
+			messagebody+="- Folder: ${name}  \n"
+		fi
 	done < "${TMP_FILE_STORAGE}"
 }
 
 function show_final_delete_prompt ()
 {
 	MainDialogBody=(
-		--message "Are you sure you want to delete these applications?
-
-${messagebody}"
-		--icon "SF=trash.fill,color=black,weight=light"
-        --titlefont shadow=1
+		--message "Are you sure you want to delete these applications?\n\n${messagebody}"
+		--icon "${SD_ICON_FILE}"
 		--overlayicon warning
 		--height 500
 		--bannerimage "${SD_BANNER_IMAGE}"
+		--titlefont shadow=1
 		--bannertitle "${SD_WINDOW_TITLE}"
 		--button1text "Delete"
 		--button2text "Cancel"
@@ -307,23 +346,22 @@ ${messagebody}"
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 	buttonpress=$?
 
-	# User wants to continue, so delete the files
+	# Evaluate the choice
 
 	[[ ${buttonpress} -eq 0 ]] && delete_files
-
-	# user choose to exit
-	
 	[[ ${buttonpress} -eq 2 ]] && cleanup_and_exit
-
 }
 
 function delete_files () 
 {
 	while read -r line; do
-		name=$( echo ${line} | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
+		name=$( echo "${line}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
 		if [[ -n "${name}" ]] && [[ -e "/Applications/${name}.app" ]]; then
 			/bin/rm -rf "/Applications/${name}.app"
 			logMe "Removed application: ${name}"
+		elif [[ -d "/Applications/${name}" ]]; then
+			/bin/rm -rf "/Applications/${name}"
+			logMe "Removed Folder: ${name}"
 		fi
 	done < "${TMP_FILE_STORAGE}"
 }
@@ -331,15 +369,13 @@ function delete_files ()
 function show_completed_prompt ()
 {
 	MainDialogBody=(
-		--message "The following application(s) have been deleted.<br><br>${messagebody}
-
-If you need to delete more files, you can choose \"Run Again\" below."
+		--message "The following application(s) have been deleted.<br><br>${messagebody}\n\nIf you need to delete more files, you can choose \"Run Again\" below."
 		--ontop 
-		--icon "SF=trash.fill,color=black,weight=light"
+		--icon "${SD_ICON_FILE}"
+		--titlefont shadow=1
 		--overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
 		--width 920
 		--quitkey 0
 		--buttonstyle center
@@ -363,17 +399,15 @@ If you need to delete more files, you can choose \"Run Again\" below."
 
 autoload 'is-at-least'
 
-typeset -a FILES_LIST
-typeset HARDWARE_ICON
-typeset messagebody
-typeset MainDialogBody
+declare -a FILES_LIST
+declare messagebody
 
 check_swift_dialog_install
-check_support_files
 create_log_directory
+check_support_files
+create_infobox_message
+
 while true; do
-	create_filelist_json_blob
-	create_infobox_message
 	build_file_list_array
 	construct_display_list
 	choose_files_to_delete

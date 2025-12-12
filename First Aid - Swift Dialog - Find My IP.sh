@@ -1,54 +1,92 @@
 #!/bin/zsh
 #
-# IP Test
+# WhatsMyIP
 #
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 08/13/2025
+# Last updated: 11/17/2025
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
-# 1.1 - Code cleanup to be more consistant with all apps
-# 1.2 - Reworked logic for all physical adapters to accomodate for older macs
+# 1.1 - Code cleanup to be more consistent with all apps
+# 1.2 - Reworked logic for all physical adapters to accommodate for older macs
 # 1.3 - Included logic to display Wifi name if found
-# 1.4 - Changed logic for Wi-Fi name to accomodate macOS 15.6 changes
+# 1.4 - Changed logic for Wi-Fi name to accommodate macOS 15.6 changes
+#       Reworked top section for better idea of what can be modified
+# 1.5 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="WhatsMyIP"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/NetworkIP.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
-
-JSON_OPTIONS=$(mktemp /var/tmp/NetworkIP.XXXXX)
-chmod 777 $JSON_OPTIONS
-BANNER_TEXT_PADDING="      " #5 Spaces to accomodate for Logo
-SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
-SD_INFO_BOX_MSG=""
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+chmod 666 $JSON_OPTIONS
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+
+SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
+SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+OVERLAY_ICON="/System/Applications/App Store.app"
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
 ##################################################
 #
@@ -56,12 +94,14 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
-
-typeset -a adapter
-typeset -a ip_address
+####################################################################################################
+#
+# Functions
+#
+####################################################################################################
 
 function create_log_directory ()
 {
@@ -71,6 +111,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -89,7 +130,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -160,7 +200,13 @@ function get_nic_info
 
         [[ -z $currentip ]] && continue
         adapter+="$sname"
-        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($( system_profiler SPAirPortDataType | awk '/Current Network Information:/ { getline; print substr($0, 13, (length($0) - 13)); exit }' ))_"      
+        if [[ $sname == *"Wi-Fi"* ]]; then
+            wirelessInterface=$( networksetup -listnetworkserviceorder | sed -En 's/^\(Hardware Port: (Wi-Fi|AirPort), Device: (en.)\)$/\2/p' )
+            ipconfig setverbose 1
+            wifiName='('$( ipconfig getsummary "${wirelessInterface}" | awk -F ' SSID : ' '/ SSID : / {print $2}')')'
+            ipconfig setverbose 0
+            [[ -z "${wifiName}" ]] && wifiName="Not connected"
+        fi
         ip_address+="**$currentip** $wifiName"
     done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
 
@@ -196,6 +242,7 @@ function construct_dialog_header_settings()
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
 		"titlefont" : "shadow=1",
 		"button1text" : "OK",
+        "ontop" : "true",
 		"height" : "375",
 		"width" : "800",
 		"moveable" : "true",
@@ -227,6 +274,10 @@ function display_welcome_message()
 # Main Program
 #
 ##############################
+
+typeset -a adapter
+typeset -a ip_address
+
 autoload 'is-at-least'
 
 create_log_directory

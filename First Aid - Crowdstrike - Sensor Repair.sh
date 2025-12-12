@@ -2,17 +2,18 @@
 #
 # Written by: Scott Kendall
 # Date Created: 01/21/2025
-# Date Last Revised: 01/25/2025
+# Date Last Revised: 12/12/2025
 # 
-# v1.0 - Inital Release
+# v1.0 - Initial Release
 # v1.1 - Add function to uninstall/reinstall
 #		 Made the restart error do an uninstall/reinstall to see if that fixes it
+# v1.2 - Fixed typos 
 #
 # Borrowed heavily from @Snelson: source code @ https://snelson.us/2023/03/crowdstrike-falcon-kickstart-0-0-2/
 #
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables (do not change these!)
 #
 ######################################################################################################
 export PATH=/usr/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
@@ -21,10 +22,9 @@ SUPPORT_DIR="/Library/Application Support/GiantEagle"
 
 LOG_DIR="${SUPPORT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/FalcanSensor.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 falconBinary="/Applications/Falcon.app/Contents/Resources/falconctl"
-falcanJAMFtrigger="crowdstrike"
+falconJAMFtrigger="crowdstrike"
 
 exitCode="0"
 
@@ -41,7 +41,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -60,8 +61,7 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}" 1>&2
 }
 
 function preflight_check ()
@@ -100,7 +100,7 @@ function log_sensor_updates()
 function connection_test()
 {
     test=$("nc -vz ts01-b.cloudsink.net 443")
-    [["${test}" == *"succedded!"* ]] && echo "true" || echo "false" 
+    [["${test}" == *"succeeded!"* ]] && echo "true" || echo "false" 
 }
 
 function load_sensor()
@@ -110,7 +110,7 @@ function load_sensor()
 
 function load_jamf_policy ()
 {
-    jamf policy -trigger "${falcanJAMFtrigger}"
+    jamf policy -trigger "${falconJAMFtrigger}"
 }
 
 function get_agent_info ()
@@ -119,7 +119,7 @@ function get_agent_info ()
 }
 function uninstall_reinstall ()
 {
-        falconKickStartUninstall=$( ${falconBinary} uninstall -t <<< 00345e4e1ce6372bdb2477afac6fd5fac39a074e9a3761bae509a895b2cf1c4e )
+        falconKickStartUninstall=$( ${falconBinary} uninstall -t <<< <your falcon key here>)
         log_sensor_updates "${falconKickStartUninstall}"
 
         logMe "Re-installing CrowdStrike Falcon …"
@@ -159,7 +159,7 @@ case ${systemExtensionStatus} in
         case ${sensorOperationalStatus:l} in
 
             *"true"* )
-                # sensors are loaded and functioning correclty
+                # sensors are loaded and functioning correctly
                 log_sensor_updates "${sensorOperationalStatus}"
                 ;;
 

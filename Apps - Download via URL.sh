@@ -1,18 +1,18 @@
 #!/bin/zsh
 #
-# Purpose: donwload file via curl to users machine
+# Purpose: download file via curl to users machine
 #
-# PARMS: $4 - URL path to insall from (exclude filename)
+# PARMS: $4 - URL path to install from (exclude filename)
 #        $5 - filename to download
 #        $6 - destination location
 #        $7 - run installer after download (Y/N)
 #        $8 - file to run after install
 #
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_FILE="${SUPPORT_DIR}/Download_Internet_File.log"
 
 ##################################################
@@ -42,7 +42,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -61,8 +62,7 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}" 1>&2
 }
 
 ####################################################################################################
@@ -73,12 +73,11 @@ function logMe ()
 
 logMe "Retrieve file $DestFile from $urlPath"
 /usr/bin/curl --silent -o "/tmp/${DestFile}" "${urlPath}${DestFile}"
-echo $?
 if [[ $? -gt 0 ]]; then
-    logMe "An error has occured while downloading the file"
+    logMe "An error has occurred while downloading the file"
     exit 1
 fi
-logMe "Successfull download...proceeding"
+logMe "Successful download...proceeding"
 
 # if they opted to not run the installer, then exit
 [[ $runInstaller == 'N' ]] && exit 0
