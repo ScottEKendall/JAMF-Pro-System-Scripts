@@ -3,12 +3,13 @@
 # by: Scott Kendall
 #
 # Written: 09/05/2025
-# Last updated: 09/05/2025
+# Last updated: 12/23/2025
 
 # Script to retrieve the inTune profile picture and store that as their login picture
 # Original idea by lucaesse https://github.com/lucaesse/Jamf-McNuggets 
 # 
 # 1.0 - Initial code
+# 1.1 - Fixed improper case for variable MS_ACCESS_TOKEN
 #
 ######################################################################################################
 #
@@ -110,7 +111,7 @@ function msgraph_get_user_photo_etag ()
     # RETURN: last_password_change
     # EXPECTED: MS_USER_NAME, ms_access_token
 
-    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo" -H "Authorization: Bearer $ms_access_token")
+    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo" -H "Authorization: Bearer $MS_ACCESS_TOKEN")
     echo "$user_response" | jq -r '."@odata.mediaEtag"'
 }
 
@@ -121,7 +122,7 @@ function msgraph_get_user_photo_jpeg ()
     # RETURN: None
     # EXPECTED: MS_USER_NAME, ms_access_token
 
-    curl -s -L -H "Authorization: Bearer ${ms_access_token}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$$1"
+    curl -s -L -H "Authorization: Bearer ${MS_ACCESS_TOKEN}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$$1"
     [[ ! -s "$1" ]] && { echo "ERROR: Downloaded file empty"; cleanup_and_exit 1; }
 }
 
@@ -134,7 +135,7 @@ function create_photo_dir ()
     /bin/chmod 644 "$PERM_PHOTO_FILE"
 }
 
-function set_proflie_picture ()
+function set_profile_picture ()
 {
     
     sips -Z 128 "$PERM_PHOTO_FILE" --out "$TMP_FILE_STORAGE" >/dev/null 2>&1 || {
@@ -213,13 +214,13 @@ ETAG_FILE="$PHOTO_DIR/${SAFE_UPN}.etag"
 
 if [[ -f "$ETAG_FILE" ]]; then
     PREV_ETAG=$(cat "$ETAG_FILE")
-    [[ "$CURRENT_ETAG" == "$PREV_ETAG" ]] && { echo "INFO: Photo unchanged"; cleanup_and_exit 0; }
+    [[ "$CURRENT_ETAG" == "$PREV_ETAG" ]] && { echo "INFO: Photo unchanged"; }
 fi
 
 # Retrieve photo
 msgraph_get_user_photo_jpeg $PHOTO_FILE
 create_photo_dir
-set_proflie_picture
+set_profile_picture
 
 echo "$CURRENT_ETAG" > "$ETAG_FILE"
 echo "SUCCESS: Photo saved to: $PHOTO_FILE"
