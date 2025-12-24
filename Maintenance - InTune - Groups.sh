@@ -9,6 +9,8 @@
 # 
 # 1.0 - Initial code
 # 1.1 - Add in functions to write out SMB server paths so it can be read in later when using the "Connect Network Drive" script
+# 1.2 - Fixed the JSS_FILE variable to allow spaces in filenames
+#       More error correction while reading plist file
 #
 ######################################################################################################
 #
@@ -133,22 +135,23 @@ function modify_group_entries ()
 {
     # Here is where we make the changes to the users plist file to show the Group Names and drive mappings (SMB path)
     # Create or modify the Plist entries for EntraGroups if they don't exist
-    retval=$(/usr/libexec/plistbuddy -c "print EntraGroups" $JSS_FILE 2>&1)
+    retval=$(/usr/libexec/plistbuddy -c "print EntraGroups" "${JSS_FILE}" 2>&1)
     if [[ "$retval" == *"Does Not Exist"* ]]; then
         echo "INFO: Creating Entra Groups"
     else
         echo "INFO: Updating existing Entra Groups"
-        retval=$(/usr/libexec/PlistBuddy -c "Delete EntraGroups" $JSS_FILE 2>&1)
+        retval=$(/usr/libexec/PlistBuddy -c "Delete EntraGroups" "${JSS_FILE}" 2>&1)
         [[ ! -z $retval ]] && {echo "ERROR: Problems deleting array: "$retval; exit 1;} 
     fi
 
-    retval=$(/usr/libexec/plistbuddy -c "add EntraGroups array" $JSS_FILE 2>&1)
+    retval=$(/usr/libexec/plistbuddy -c "add EntraGroups array" "${JSS_FILE}" 2>&1)
     # Make sure nothing went wrong while creating the array
+    [[ "$retval" == *"Will Create"* ]] && retval="" #If the key doesn't exist, then let the script create it
     [[ ! -z $retval ]] && {echo "ERROR: Results of last command: "$retval; exit 1;} 
 
     for item in ${localGroups[@]}; do
         echo "INFO: Add Group - "$item
-        /usr/libexec/PlistBuddy -c "Add EntraGroups: string $item" $JSS_FILE 2>&1
+        /usr/libexec/PlistBuddy -c "Add EntraGroups: string $item" "${JSS_FILE}" 2>&1
     done
 
 }
@@ -158,16 +161,17 @@ function modify_drive_mappings ()
 
     # Create or modify the Plist entries for DriveMappings if they don't exist
 
-    retval=$(/usr/libexec/plistbuddy -c "print DriveMappings" $JSS_FILE 2>&1)
+    retval=$(/usr/libexec/plistbuddy -c "print DriveMappings" "${JSS_FILE}" 2>&1)
     if [[ "$retval" == *"Does Not Exist"* ]]; then
         echo "INFO: Creating Drive Mappings"
     else
         echo "INFO: Updating existing Drive Mappings"
-        retval=$(/usr/libexec/PlistBuddy -c "Delete DriveMappings" $JSS_FILE 2>&1)
-        [[ ! -z $retval ]] && {echo "ERROR: Problems deleting array: "$retval; exit 1;} 
+        retval=$(/usr/libexec/PlistBuddy -c "Delete DriveMappings" "${JSS_FILE}" 2>&1)
+        #[[ ! -z $retval ]] && {echo "ERROR: Problems deleting array: "$retval; exit 1;} 
     fi
 
-    retval=$(/usr/libexec/plistbuddy -c "add DriveMappings array" $JSS_FILE 2>&1)
+    retval=$(/usr/libexec/plistbuddy -c "add DriveMappings array" "${JSS_FILE}" 2>&1)
+    [[ "$retval" == *"Will Create"* ]] && retval="" #If the key doesn't exist, then let the script create it
     # Make sure nothing went wrong while creating the array
     [[ ! -z $retval ]] && {echo "ERROR: Results of last command: "$retval; exit 1;} 
 
@@ -176,14 +180,14 @@ function modify_drive_mappings ()
         mapping=$(echo $DriveMappings | jq '.[] | select(.GroupName == "'$item'") | .SMBShare')
         if [[ ! -z $mapping ]]; then
             echo "INFO: Add mapping - "$mapping
-            /usr/libexec/PlistBuddy -c "Add DriveMappings: string $mapping" $JSS_FILE 2>&1
+            /usr/libexec/PlistBuddy -c "Add DriveMappings: string $mapping" "${JSS_FILE}" 2>&1
         fi
     done
     # Everyone gets the common share in their mappings:
 
     mapping=$(echo $DriveMappings | jq '.[] | select(.GroupName == "COMMON") | .SMBShare')
     echo "INFO: Add mapping - "$mapping
-    /usr/libexec/PlistBuddy -c "Add DriveMappings: string $mapping" $JSS_FILE 2>&1
+    /usr/libexec/PlistBuddy -c "Add DriveMappings: string $mapping" "${JSS_FILE}" 2>&1
 
 }
 
@@ -226,7 +230,7 @@ msgraph_get_group_data
 
 # Write out the info it our plist array
 echo "INFO: Microsoft EntraID: "$MS_USER_NAME
-echo "INFO: Plist file: "$JSS_FILE
+echo "INFO: Plist file: ${JSS_FILE}"
 
 create_group_list
 modify_group_entries
