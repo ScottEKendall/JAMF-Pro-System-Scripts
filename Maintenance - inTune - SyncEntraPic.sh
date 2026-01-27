@@ -3,27 +3,30 @@
 # by: Scott Kendall
 #
 # Written: 09/05/2025
-# Last updated: 12/23/2025
+# Last updated: 01/26/2026
 
 # Script to retrieve the inTune profile picture and store that as their login picture
 # Original idea by lucaesse https://github.com/lucaesse/Jamf-McNuggets 
 # 
 # 1.0 - Initial code
-# 1.1 - Fixed improper case for variable MS_ACCESS_TOKEN
+# 1.1 - Added function to check & install jq if necessary
+# 1.2 - Fixed issue of both lower MS_ACCESS_TOKEN & MS_ACCESS_TOKEN
+#       In the get_photo_jpeg function, removed the $$1 and made it $1
+#       Removed the existing photo before writing out the new one...
 #
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 
 PHOTO_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 JSS_FILE="$PHOTO_DIR/com.GiantEagleEntra.plist"
 PERM_PHOTO_DIR="/Library/User Pictures"
 JQ_INSTALL_POLICY="install_jq"
-TMP_FILE_STORAGE=$(mktemp /var/tmp/EntraPhoto.XXXXX)
+TMP_FILE_STORAGE=$(mktemp /var/tmp/EntraPhoto-XXXXX.jpg)
 /bin/chmod 666 $TMP_FILE_STORAGE
 
 ##################################################
@@ -55,8 +58,7 @@ function msgraph_getdomain ()
     # RETURN: None
     # EXPECTED: MS_DOMAIN
 
-    local url
-    url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+    local url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
 
     # Extract the desired part using Zsh parameter expansion
     tmp=${url#*://}  # Remove the protocol part
@@ -109,7 +111,7 @@ function msgraph_get_user_photo_etag ()
 {
     # PURPOSE: Retrieve the user's Graph API Record
     # RETURN: last_password_change
-    # EXPECTED: MS_USER_NAME, ms_access_token
+    # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN
 
     user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo" -H "Authorization: Bearer $MS_ACCESS_TOKEN")
     echo "$user_response" | jq -r '."@odata.mediaEtag"'
@@ -120,9 +122,8 @@ function msgraph_get_user_photo_jpeg ()
     # PURPOSE: Retrieve the user's Graph API JPEG photo
     # PARAMETERS: $1 - Photo file to store download file
     # RETURN: None
-    # EXPECTED: MS_USER_NAME, ms_access_token
-
-    curl -s -L -H "Authorization: Bearer ${MS_ACCESS_TOKEN}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$$1"
+    # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN
+    curl -s -L -H "Authorization: Bearer ${MS_ACCESS_TOKEN}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$1"
     [[ ! -s "$1" ]] && { echo "ERROR: Downloaded file empty"; cleanup_and_exit 1; }
 }
 
@@ -137,18 +138,15 @@ function create_photo_dir ()
 
 function set_profile_picture ()
 {
-    
-    sips -Z 128 "$PERM_PHOTO_FILE" --out "$TMP_FILE_STORAGE" >/dev/null 2>&1 || {
-        echo "ERROR: Cannot resize image"; cleanup_and_exit 1
-    }
+    # PURPOSE: Set the macOS Profile Picture
+    # PARAMETERS: $1 - Photo file to use
+    # RETURN: None
+    # EXPECTED: LOGGED_IN_USER
 
-    /usr/bin/dscl . -create "/Users/$LOGGED_IN_USER" JPEGPhoto "$(base64 < "$TMP_FILE_STORAGE")" && \
-        echo "SUCCESS: JPEGPhoto updated for $LOGGED_IN_USER" || \
-        echo "ERROR: Failed to set JPEGPhoto"
-
-    # Optional: keep path attribute for legacy
-    /usr/bin/dscl . -create "/Users/$LOGGED_IN_USER" picture "$PERM_PHOTO_FILE"
-
+    /usr/bin/dscl . -delete "/Users/$LOGGED_IN_USER" JPEGPhoto #Delete the existing photo if there is one...
+    /usr/bin/dscl . -delete "/Users/$LOGGED_IN_USER" Picture
+    /usr/bin/dscl . -create "/Users/$LOGGED_IN_USER" Picture "$1"
+    [[ $? -eq 0 ]] && echo "SUCCESS: Profile photo updated for $LOGGED_IN_USER" || echo "ERROR: Failed to set JPEGPhoto"
 }
 
 function cleanup_and_exit ()
@@ -185,6 +183,7 @@ function check_logged_in_user ()
 declare ETAG_FILE
 declare MS_DOMAIN
 declare MS_ACCESS_TOKEN
+declare PERM_PHOTO_FILE
 
 check_logged_in_user
 check_support_files
@@ -212,15 +211,20 @@ ETAG_FILE="$PHOTO_DIR/${SAFE_UPN}.etag"
 # Check the current eTAg info
 [[ "$CURRENT_ETAG" == "null" ]] && { echo "INFO: No photo in Entra ID"; cleanup_and_exit 0; }
 
-if [[ -f "$ETAG_FILE" ]]; then
-    PREV_ETAG=$(cat "$ETAG_FILE")
-    [[ "$CURRENT_ETAG" == "$PREV_ETAG" ]] && { echo "INFO: Photo unchanged"; }
-fi
+# if the photo is missing, then delete the etag file and download a new photo
+#[[ ! -f $PHOTO_FILE ]] && { echo "WARNING: Photo not found!"; rm -r $ETAG_FILE; }
+
+# Compare the current photo from the server to the one on the local machine to see if they differ
+#if [[ -f "$ETAG_FILE" ]]; then
+#    PREV_ETAG=$(cat "$ETAG_FILE")
+#    [[ "$CURRENT_ETAG" == "$PREV_ETAG" ]] && { echo "INFO: Photo unchanged"; set_profile_picture; cleanup_and_exit 0; }
+#fi
 
 # Retrieve photo
 msgraph_get_user_photo_jpeg $PHOTO_FILE
 create_photo_dir
-set_profile_picture
+
+set_profile_picture $PERM_PHOTO_FILE
 
 echo "$CURRENT_ETAG" > "$ETAG_FILE"
 echo "SUCCESS: Photo saved to: $PHOTO_FILE"
