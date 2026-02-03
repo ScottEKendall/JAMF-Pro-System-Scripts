@@ -4,7 +4,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 11/15/2025
+# Last updated: 02/03/2026
 
 # Script to view inventory detail of a JAMF record and show pertinent info in SwiftDialog
 # 
@@ -17,27 +17,24 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
-#
+# 1.5 - Optimized "Common" for faster performance / take advantage of the defaults file
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 SCRIPT_NAME="ViewInventory"
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+USER_UID=$(id -u "$LOGGED_IN_USER")
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 MAC_LOCALNAME=$(scutil --get LocalHostName)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
@@ -68,17 +65,17 @@ JSS_FILE="$USER_DIR/Library/Application Support/com.GiantEagleEntra.plist"
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
     spacing=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -318,8 +315,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
-    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
