@@ -19,6 +19,7 @@ fi
 
 ssoStatus=$(su -l $loggedInUser -c "app-sso platform -s")
 if [[ $(getValueOf registrationCompleted "$ssoStatus") != true ]]; then
+    su -l $loggedInUser -c "/Library/Application\ Support/JAMF/Jamf.app/Contents/MacOS/Jamf\ Conditional\ Access.app/Contents/MacOS/Jamf\ Conditional\ Access gatherAADInfo"
 	echo "Registered via Platform SSO"
     exit 0
 fi

@@ -4,7 +4,7 @@
 # by: Scott Kendall
 #
 # Written: 01/24/2025
-# Last updated: 02/03/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: Display information about Crowdstrike sensor
 #
@@ -15,17 +15,19 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
-# 1.3 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 1.3 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+#
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
+
 SCRIPT_NAME="InspectCrowdstrike"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
@@ -40,6 +42,9 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -65,7 +70,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -74,16 +79,12 @@ BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
-
 SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"Crowdstrike Inspector"
 SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
 SD_ICON_FILE="/Applications/Falcon.app"
 
 FALCON_PATH="/Applications/Falcon.app/Contents/Resources/falconctl"
 TIMER_IN_SECONDS=2
-
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 ##################################################
 #
@@ -158,12 +159,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -197,7 +198,9 @@ function create_welcome_msg ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON_FILE}"
         --titlefont shadow=1
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  This script analyzes the installation of CrowdStrike Falcon then reports the findings in this window.  \n\nPlease wait …"
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  This script analyzes the installation of CrowdStrike Falcon then reports the findings in this window.  
+
+Please wait …"
         --iconsize 135
         --titlefont shadow=1
         --messagefont name=Arial,size=17
@@ -426,7 +429,8 @@ function get_falcon_stats ()
     logMe "System Extension: ${systemExtensionStatus}"
     logMe "Agent ID: ${falconAgentID}"
     logMe "Heartbeats: ${falconHeartbeats6}"
-    logMe "Elapsed Time: $(printf '%dh:%dm:%ds\n' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
+    logMe "Elapsed Time: $(printf '%dh:%dm:%ds
+' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
 
     # Display results to user
     timestamp="$( date '+%Y-%m-%d-%H:%M:%S' )"
@@ -435,7 +439,8 @@ function get_falcon_stats ()
     sleep "${TIMER_IN_SECONDS}"
     update_display_list "buttonchange" "Done"
     update_display_list "buttonenable"
-    #updateWelcomeDialog "progresstext: Elapsed Time: $(printf '%dh:%dm:%ds\n' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
+    #updateWelcomeDialog "progresstext: Elapsed Time: $(printf '%dh:%dm:%ds
+' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
 
 }
 

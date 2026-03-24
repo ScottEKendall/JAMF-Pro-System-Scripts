@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/2/2022
-# Last updated: 02/03/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: 
 #
@@ -18,19 +18,17 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
-# 1.5 - Optimized "Common" for faster performance / take advantage of the defaults file
-
+# 1.5 - Had to fix some dialog logic for  Tahoe & SD v3.0
+# 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="DiskUsage"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
@@ -71,7 +69,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -163,12 +161,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -207,11 +205,10 @@ function display_welcome_message ()
         --message "${WelcomeMsg}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --moveable
         --overlayicon "${SD_ICON}"
         --icon computer
         --quitkey 0
-        --titlefont shadow=1, size=24
+        --titlefont shadow=1
         --messagefont size=18
         --checkbox "Directories only"
         --infobox "${SD_INFO_BOX_MSG}"
@@ -219,10 +216,10 @@ function display_welcome_message ()
         --height 480
         --button1text "Ok"
         --button2text "Cancel"
-        --ontop
         )
 
         [[ -x "${GRAND_PERSPECTIVE_APP}" ]] && MainDialogBody+=(--infobuttontext "Grand Perspective")
+        MainDialogBody+=(--moveable --ontop)
         temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
         returnCode=$?
 
@@ -263,13 +260,13 @@ function show_results ()
         --messagefont size=12
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --moveable
         --quitkey 0
-        --titlefont shadow=1, size=24
+        --titlefont shadow=1
         --width 1000
         --height 800
         --button1text "Ok"
         --ontop
+        --moveable
         )
 
         "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null

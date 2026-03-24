@@ -5,9 +5,9 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 10/30/2025
+# Last updated: 03/13/2026
 #
-# Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
+# Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessary
 #
 # Derived from script written by: Brian Van Peski
 # https://www.macosadventures.com/2023/03/07/screennudge-v1-7/
@@ -15,11 +15,17 @@
 # 1.0 - Initial
 # 1.1 - Put in logic to check User TCC first and then the System TCC
 # 1.2 - Added check to make sure a user is logged in / Added more logging items / Removed the sudo command from the sql command
-# 1.3 - Added support for multiple TCC checks (seperate each key with a space)
+# 1.3 - Added support for multiple TCC checks (separate each key with a space)
 # 1.4 - Made the UserTCC keys a "static" array so that it can be checked against bundles better
 # 1.5 - Code clean up and better determination of mode of TCC Key
-# 1.6 - Check for existance of application before proceeding
-# 1.7 - Check for presence of jq and install if necessary
+# 1.6 - Check for existence of application before proceeding
+# 1.7 - Added variable USER_UID to make sure that the RunAsUser runs with the correct ID / Reworked top section to be standard across all apps
+# 1.8 - Added option to only run if user is logged in.
+# 1.9 - Fix issue around the defaults file variables not getting set properly / added line to make sure LOG_DIR was created properly
+# 1.10- Fixed window layout for Tahoe & SD v3.0
+# 1.11 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -49,50 +55,61 @@
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables (do not change these!)
 #
 ######################################################################################################
 
+SCRIPT_NAME="PPPCNudge"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SD_INFO_BOX_MSG=""
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+USER_UID=$(id -u "$LOGGED_IN_USER")
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files
+
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
+chmod 666 $DIALOG_COMMAND_FILE
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=3 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/PPCNudge.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
-# Display items (banner / icon / help icon, etc)
+# Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Privacy & Security Settings"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-OVERLAY_ICON="/Applications/Self Service.app"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
+
 
 # Trigger installs for Images & icons
 
@@ -128,6 +145,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -178,13 +196,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
@@ -202,7 +220,6 @@ function welcomemsg ()
 	MainDialogBody=(
         --message $1
         --titlefont shadow=1
-        --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
@@ -210,12 +227,12 @@ function welcomemsg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage "This setting needs to be set for this particular app so it will work properly"
         --ignorednd
-        --ontop
         --width 680
-        --moveable
         --quitkey 0
         --button1text "OK"
         --button2text "Helpdesk Ticket"
+        --ontop
+        --moveable
     )
     [[ "${DISPLAY_TYPE:l}" == "mini" ]] && MainDialogBody+=(--mini)
     
@@ -357,7 +374,15 @@ function Check_TCC ()
 
 function runAsUser () 
 {  
-    launchctl asuser "$UID" sudo -u "$LOGGED_IN_USER" "$@"
+    launchctl asuser "$USER_UID" sudo -u "$LOGGED_IN_USER" "$@"
+}
+
+function check_logged_in_user ()
+{
+    if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
+        logMe "INFO: No user logged in"
+        cleanup_and_exit 0
+    fi
 }
 
 function extract_keys_from_json ()
@@ -390,11 +415,7 @@ declare tccKeyStatus
 
 autoload 'is-at-least'
 
-if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
-    logMe "INFO: No user logged in"
-    cleanup_and_exit 0
-fi
-
+check_logged_in_user
 create_log_directory
 check_swift_dialog_install
 check_support_files

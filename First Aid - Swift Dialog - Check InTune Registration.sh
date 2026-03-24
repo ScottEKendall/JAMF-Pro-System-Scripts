@@ -5,9 +5,9 @@
 # by: Scott Kendall
 #
 # Written: 02/03/2025
-# Last updated: 02/03/2026
+# Last updated: 03/13/2026
 #
-# Script Purpose: Backup the keychain file and delete the current keychain file(s)
+# Script Purpose: Check if the user is registered for EntraID and display status.  If not registered, provide option to register via JAMF policy.
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistent with all apps
@@ -19,13 +19,19 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
-# 1.6 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 1.6 - Optimized Common section
+#       Added options to check for logged in user and system awake
+# 1.7 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 #
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
+
 SCRIPT_NAME="EntraIDRegistration"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
@@ -44,14 +50,13 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-# Make some temp files for this app
-
-JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-/bin/chmod 666 "${JSON_OPTIONS}"
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
 ###################################################
 #
@@ -69,7 +74,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -163,12 +168,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -187,11 +192,36 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
+function check_logged_in_user ()
+{    
+    # PURPOSE: Make sure there is a logged in user
+    # RETURN: None
+    # EXPECTED: $LOGGED_IN_USER
+    if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
+        logMe "INFO: No user logged in, exiting"
+        cleanup_and_exit 0
+    else
+        logMe "INFO: User $LOGGED_IN_USER is logged in"
+    fi
+}
+
+function check_display_sleep ()
+{
+    # PURPOSE: Determine if the mac is asleep or awake.
+    # RETURN: will return 0 if awake, otherwise will return 1
+    # EXPECTED: None
+    local sleepval=$(pmset -g systemstate | tail -1 | awk '{print $4}')
+    local retval=0
+    logMe "INFO: Checking sleep status"
+    [[ $sleepval -eq 4 ]] && logMe "INFO: System appears to be awake" || { logMe "INFO: System appears to be asleep, will pause notifications"; retval=1; }
+    return $retval
+}
+
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+  [[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+  [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit $1
 }
 
@@ -295,21 +325,21 @@ function welcomemsg ()
 
   MainDialogBody=(
     --message "${messagebody}"
-    --icon computer
+		--icon computer
     --overlayicon "${OVERLAY_ICON}"
-    --height 520
-    --ontop
+		--height 520
+		--ontop
     --image "${messageimage}"
     --imagecaption "${messageimagecpation}"
-    --bannerimage "${SD_BANNER_IMAGE}"
-    --bannertitle "${SD_WINDOW_TITLE}"
+		--bannerimage "${SD_BANNER_IMAGE}"
+		--bannertitle "${SD_WINDOW_TITLE}"
     --infobox "${SD_INFO_BOX_MSG}"
     --titlefont shadow=1
     --alignment center
     --moveable
-    --button1text "OK"
+		--button1text "OK"
     --button2text "${showRegisterButton}"
-    --buttonstyle center
+		--buttonstyle center
   )
 
 	# Show the dialog screen and allow the user to choose
@@ -329,8 +359,12 @@ autoload 'is-at-least'
 
 check_swift_dialog_install
 check_support_files
+check_logged_in_user
 create_infobox_message
+if ! check_display_sleep; then
+  cleanup_and_exit 1
+fi
 check_inTune_Registration
 construct_welcomemsg
 welcomemsg
-exit 0
+cleanup_and_exit 0

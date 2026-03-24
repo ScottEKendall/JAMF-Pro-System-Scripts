@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/11/25
-# Last updated: 02/03/26
+# Last updated: 03/13/2026
 #
 # Script Purpose: GUI Prompt to set the Secure Token to any user
 #
@@ -22,7 +22,15 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
-# 1.4 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 1.4 - Changed output of Dialog to use JSON blob to handle parsing of password with special characters
+#       Added logic to make sure jq was installed.
+#       Fixed issue of defaults variables not getting set properly
+#       Fixed typos
+# 1.5 - Had to increase window height for Tahoe & SD v3.0
+# 1.6 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 ######################################################################################################
 #
 # Global "Common" variables
@@ -30,10 +38,8 @@
 ######################################################################################################
 
 SCRIPT_NAME="GrantSecureToken"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
@@ -72,7 +78,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -90,6 +96,7 @@ SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -113,14 +120,14 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+    # If the log directory doesnt exist - create it and set the permissions
     LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+    /bin/chmod 755 "${LOG_DIR}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    # If the log file does not exist - create it and set the permissions
+    [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+    /bin/chmod 644 "${LOG_FILE}"
 }
 
 function logMe () 
@@ -161,16 +168,17 @@ function check_swift_dialog_install ()
 function install_swift_dialog ()
 {
     # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
+    # PRAMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -191,15 +199,15 @@ function create_infobox_message()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+    [[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    exit $1
 }
 
 function display_msg ()
 {
-    # Expected Parms
+    # Expected Prams
     #
     # Parm $1 - Message to display
     # Parm $2 - Type of dialog (message, input, password)
@@ -212,28 +220,29 @@ function display_msg ()
 	MainDialogBody=(
         --message "${message}"
         --titlefont shadow=1
-		--ontop
-		--icon "$SD_ICON_FILE"
-		--overlayicon "$4"
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
+        --ontop
+        --icon "$SD_ICON_FILE"
+        --overlayicon "$4"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --height 445
-		--width 760
-		--quitkey 0
+        --height 470
+        --width 760
+        --quitkey 0
+        --json
         --moveable
-		--button1text "$3"
+        --button1text "$3"
     )
 
     # Add items to the array depending on what info was passed
 
     if [[ "$2" == "input" ]]; then
-        MainDialogBody+=(--selecttitle "Choose the account that already has a Secure Token",required --selectvalues ${TOKEN_USER_PICK_LIST})
-        MainDialogBody+=(--selecttitle "Select the user that will needs a Secure Token",required --selectvalues ${USERS_ON_SYSTEM})
+        MainDialogBody+=(--selecttitle "Choose the account that already has a Secure Token",required,name="hasToken" --selectvalues ${TOKEN_USER_PICK_LIST})
+        MainDialogBody+=(--selecttitle "Select the user that will needs a Secure Token",required,name="needsToken" --selectvalues ${USERS_ON_SYSTEM})
 
     elif [[ "$2" == "password" ]]; then
-        MainDialogBody+=(--textfield "Enter the password for "$adminUser,secure,required)
-        MainDialogBody+=(--textfield "Enter the password for "$newTokenUser,secure,required)
+        MainDialogBody+=(--textfield "Enter the password for "$adminUser,secure,required,name="adminPassword")
+        MainDialogBody+=(--textfield "Enter the password for "$newTokenUser,secure,required,name="userPassword")
     fi
 
     [[ "${3}" == "OK" ]] && MainDialogBody+=(--button2text Cancel)
@@ -244,19 +253,19 @@ function display_msg ()
     [[ $returnCode == 2 || $returnCode == 10 ]] && cleanup_and_exit
 
     if [[ "$2" == "input" ]]; then
-        adminUser=$(echo $returnval | grep "has" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
-        newTokenUser=$(echo $returnval | grep "needs" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
-
+        adminUser=$(echo $returnval | jq '.hasToken.selectedValue' | tr -d '"' | xargs)
+        newTokenUser=$(echo $returnval | jq '.needsToken.selectedValue' | tr -d '"' | xargs)
     elif [[ "$2" == "password" ]]; then
-        adminPassword=$(echo $returnval | grep "$adminUser" | awk -F ":" '{print $2}' | xargs )
-        userPassword=$(echo $returnval | grep "$newTokenUser" | awk -F ":" '{print $2}' | xargs )
+        adminPassword=$(echo $returnval | jq '.adminPassword' | tr -d '"' | xargs)
+        userPassword=$(echo $returnval | jq '.userPassword' | tr -d '"' | xargs)
     fi
 }
 
 function get_token_users ()
 {
     declare -a tmp
-    tmp=$(echo $( fdesetup list | awk -F ',' '{print $1}' | awk '$1=$1","' | tr -d "\n"))
+    tmp=$(echo $( fdesetup list | awk -F ',' '{print $1}' | awk '$1=$1","' | tr -d "
+"))
     TOKEN_USER_PICK_LIST=${tmp:0:-1}
 }
 
@@ -299,7 +308,8 @@ declare newTokenUser
 declare adminPassword
 declare userPassword
 
-USERS_ON_SYSTEM=$( dscl . ls /Users | grep -v '_' | grep -v 'root' | grep -v 'daemon'| grep -v 'nobody' | tr '\n' ',' )
+USERS_ON_SYSTEM=$( dscl . ls /Users | grep -v '_' | grep -v 'root' | grep -v 'daemon'| grep -v 'nobody' | tr '
+' ',' )
 USERS_ON_SYSTEM=${USERS_ON_SYSTEM:0:-1} # remove the last , from the list so it doesn't create a blank SD entry
 
 check_swift_dialog_install
@@ -334,7 +344,6 @@ fi
 
 display_msg "You are seeing this prompt, because you don't have what is called a 'Secure Token' on your computer.  A Secure Token allows you to login after the computer has been restarted, or to install software updates." "input" "OK" "computer" "welcome"
 display_msg "Enter the passwords for the following users" "password" "OK" "caution"
-    
 
 # Test the entered admin password
 passCheck=$(dscl /Local/Default -authonly "${adminUser}" "${adminPassword}")
@@ -352,7 +361,7 @@ message=$(more $JSON_OPTIONS | awk -F "]" '{print $2}')
 
 if [[ "${message}" != *"Done"* ]]; then
     logMe "Errors encountered: "$message
-    display_msg "An error has occured!  Results: "$message "Done" "Done" "warning"
+    display_msg "An error has occurred!  Results: "$message "Done" "Done" "warning"
     cleanup_and_exit 1
 
 fi

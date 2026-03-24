@@ -3,30 +3,33 @@
 # by: Scott Kendall
 #
 # Written: 04/16/2025
-# Last updated: 02/03/2026
+# Last updated: 03/13/2026
 
 # Script for store users to request an Adobe license transfer 
 #
 # 1.0 - Initial code
-# 1.1 - Major code clean using standardized upper section to be more inline with other scripts.
-# 1.2 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 1.1 - more concise model name ("2023 Macbook Pro") vs ("MacBook Pro (14-inch, Nov 2023)")
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.3 - Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
+# 1.4 - Fixed window layout for Tahoe & SD v3.0
+# 1.5 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
+
 SCRIPT_NAME="AdobeLicenseTransfer"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
-MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
-MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -36,6 +39,9 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
@@ -43,7 +49,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # App Specific variables (Feel free to change these)
 #
 ###################################################
-   
+
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
@@ -54,7 +60,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -62,11 +68,17 @@ BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
-# Display items (banner / icon)
-
+# Title Header
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Adobe License Transfer"
+SD_INFO_BOX_MSG=""
+OVERLAY_ICON="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
 SD_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="/System/Applications/App Store.app"
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+
 TSD_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ##################################################
@@ -76,7 +88,7 @@ TSD_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9
 #################################################
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"    
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
 #
@@ -143,12 +155,14 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
+
 }
 
 function create_infobox_message()
@@ -172,7 +186,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+	exit 0
 }
 
 function display_welcome_message ()
@@ -181,19 +195,19 @@ function display_welcome_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
         --icon "${SD_ICON}"
-        --iconsize 128
+        --titlefont shadow=1
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, Please fill out this form to have your Adobe license transferred from one store to another."
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
-        --textfield "Old Store # to transfer from",required,prompt="4 Digit Store Code",name="OldStoreID",regex="\d{4}",regexerror="Old Store Code must be a four digit number"
-        --textfield "Old Store Artist Name",required,prompt="First.Last name",name="OldStoreUser"
+        --textfield "Previous Store # to transfer from",required,prompt="4 Digit Store Code",name="OldStoreID",regex="\d{4}",regexerror="Old Store Code must be a four digit number"
+        --textfield "Previous Store Artist Name",required,prompt="First.Last name",name="OldStoreUser"
         --textfield "New Store # to transfer to",required,prompt="4 Digit Store Code",name="NewStoreID",regex="\d{4}",regexerror="New Store Code must be a four digit number"
         --textfield "New Store Artist Name",required,prompt="First.Last Name",name="NewStoreUser",value=$LOGGED_IN_USER
         --button1text "Continue"
         --button2text "Quit"
         --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon "${OVERLAY_ICON}"
         --ontop
         --height 480
         --json
@@ -214,9 +228,9 @@ function TSD_Ticket_message ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON}"
-        --iconsize 128
+        --overlayicon "${OVERLAY_ICON}"
+        --titlefont shadow=1
         --message "The following message has been created and put onto the clipboard:<br><br>**$1**<br><br>Click on the 'Create Ticket' button to put in the ticket to the TSD and make sure to paste (Option-V or Edit > Paste) this message into the _Description_ field"
-
         --button1text "Create Ticket"
         --button1action $TSD_URL
         --infobox "${SD_INFO_BOX_MSG}"
@@ -233,7 +247,6 @@ function TSD_Ticket_message ()
     
 
 }
-
 ####################################################################################################
 #
 # Main Script
@@ -257,4 +270,3 @@ TicketMessage="Please transfer the Adobe License from $OldStoreUser (Store #$old
 
 echo $TicketMessage | pbcopy
 TSD_Ticket_message $TicketMessage
-exit 0

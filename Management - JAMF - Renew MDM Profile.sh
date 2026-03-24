@@ -17,8 +17,8 @@
 error=0
 
 jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf jss_url)
-jamfpro_user="adminJAMF"
-jamfpro_password="jodri6-dyzfef-xitFub#3"
+jamfpro_user="$4"
+jamfpro_password="$5"
 machineUUID=$(/usr/sbin/ioreg -rd1 -c IOPlatformExpertDevice | /usr/bin/awk '/IOPlatformUUID/ { gsub(/"/,"",$3); print $3; }')
 
 # Remove the trailing slash from the Jamf Pro URL if needed.

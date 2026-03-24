@@ -4,7 +4,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 02/03/2026
+# Last updated: 03/13/2026
 
 # Script to view inventory detail of a JAMF record and show pertinent info in SwiftDialog
 # 
@@ -17,45 +17,49 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
-# 1.5 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 1.5 - updated Global Common section for better optimization.
+#       Rename function call names for JAMF operations.
+# 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
+#
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
 
-SCRIPT_NAME="ViewInventory"
+#set -x 
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="ViewInventory"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
 
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
 MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-MAC_LOCALNAME=$(scutil --get LocalHostName)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+MIN_SD_REQUIRED_VERSION="2.5.6"
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+# Make some temp files
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-# Make some temp files for this app
-
-JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-chmod 666 ${JSON_OPTIONS}
-
-JSS_FILE="$USER_DIR/Library/Application Support/com.GiantEagleEntra.plist"
+JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX")
+chmod 666 $JSON_DIALOG_BLOB
 
 ###################################################
 #
@@ -73,7 +77,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -170,12 +174,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -196,7 +200,7 @@ function create_infobox_message()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${JSON_DIALOG_BLOB} ]] && /bin/rm -rf ${JSON_DIALOG_BLOB}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit $1
@@ -247,7 +251,7 @@ function display_device_info ()
         --iconsize 128
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --jsonfile "${JSON_OPTIONS}"
+        --jsonfile "${JSON_DIALOG_BLOB}"
         --height 790
         --width 920
         --json
@@ -315,8 +319,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -476,7 +480,8 @@ function get_JAMF_InventoryRecord ()
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$jamfID?section=$1") # 2>/dev/null)
-    echo $retval | tr -d '\n'
+    echo $retval | tr -d '
+'
 }
 
 function get_nic_info ()
@@ -565,7 +570,7 @@ function create_message_body ()
         line+='{"title" : "'$1':", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
     fi
     [[ "$5:l" == "last" ]] && line+=']}'
-    echo $line >> ${JSON_OPTIONS}
+    echo $line >> ${JSON_DIALOG_BLOB}
 }
 
 function duration_in_days ()
@@ -715,7 +720,7 @@ else
     create_infobox_message
     display_device_entry_message
     check_JSS_Connection
-    get_JAMF_Server
+    JAMF_get_server
     [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token 
     jamfID=$(get_JAMF_DeviceID ${search_type})
 
@@ -724,7 +729,7 @@ else
     recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
     recordStorage=$(get_JAMF_InventoryRecord "STORAGE")
     recordOperatingSystem=$(get_JAMF_InventoryRecord "OPERATING_SYSTEM")
-    invalidate_JAMF_Token
+    JAMF_invalidate_token
 
     SD_WINDOW_TITLE+=" (Remote)"
     adapter="Wi-Fi"
@@ -773,7 +778,7 @@ fi
 #
 
 # Disk Space calculation
-DiskFreeSpace=$((100 * $deviceAvailStorage / $deviceTotalStorage ))
+DiskFreeSpace=0 #$((100 * $deviceAvailStorage / $deviceTotalStorage ))
 
 # Password age calculation
 

@@ -15,7 +15,7 @@ echo "$loggedInUser is currently logged in"
 
 #Find Users, excluding selected Admin user, and System and Service Accounts
 users=$( dscl . ls /Users | grep -v '_' | grep -v 'root' | grep -v 'daemon'| grep -v 'nobody'| grep -v $loggedInUser )
-userstodelete=("jamfenroll" "shortcircuit" "elder.oblex" "macadmin" "enrollment" "admin" "mdmenroll" "jamfadmin" "LAPSAccount" "LOCALadmin" "helpdesk")
+userstodelete=("jamfenroll" "shortcircuit" "elder.oblex" "macadmin" "enrollment" "admin" "mdmenroll" "jamfadmin" "LAPSAccount" "LOCALadmin" "helpdesk" "jamfmanage")
 
 ###########
 # Functions 

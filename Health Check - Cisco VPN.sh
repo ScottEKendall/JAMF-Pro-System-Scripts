@@ -1,8 +1,8 @@
 #!/bin/zsh
-falconApp="/opt/cisco/anyconnect/bin/vpn"
+CiscoApp="/opt/cisco/secureclient/bin/vpn"
 results="Error"
-if [[ -e "${falconApp}" ]]; then
-	results=$( ${falconApp} stats | grep 'Network Status:' | awk -F ":" '{print $2}' | xargs)
-	[[ "${results}" == "Available" ]] && results="Running"
+if [[ -e "${CiscoApp}" ]]; then
+	results=$( ${CiscoApp} stats | grep "Client Address (IPv4)" | awk -F ":" '{print $2}' | xargs)
+	[[ "${results}" == "Not Available" ]] && results="Idle"
 fi
 echo $results

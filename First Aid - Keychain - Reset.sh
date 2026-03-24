@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/03/2025
-# Last updated: 12/12/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: Backup the keychain file and delete the current keychain file(s)
 #
@@ -18,6 +18,12 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
+# 1.4 - Removed dependencies of using systemprofiler command and use sysctl instead
+#       Changed create_infobox_message to use new OS & version variables
+# 1.5 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 
 ######################################################################################################
 #
@@ -29,12 +35,11 @@ SCRIPT_NAME="ResetKeychain"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -42,13 +47,17 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-HOUR=$(date +%H)
-case $HOUR in
-    0[0-9]|1[0-1]) GREET="morning" ;;
-    1[2-7])        GREET="afternoon" ;;
-    *)             GREET="evening" ;;
-esac
-SD_DIALOG_GREETING="Good $GREET"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+/bin/chmod 666 "${JSON_OPTIONS}"
 
 ###################################################
 #
@@ -66,7 +75,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -156,12 +165,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -177,7 +186,7 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+	SD_INFO_BOX_MSG+="${MACOS_NAME} ${MACOS_VERSION}<br>"
 }
 
 function cleanup_and_exit ()
@@ -254,7 +263,7 @@ function perform_reset ()
 
 
     # Find all directories within the target directory and delete them, logging each action
-    find "$KEYCHAIN_DIR" -mindepth 1 -print0 | while IFS= read -r -d $'\0' dir; do
+    find "$KEYCHAIN_DIR" -mindepth 1 -print0 | while IFS= read -r -d $' ' dir; do
        rm -rf "$dir"
         if [[ $? -eq 0 ]]; then
             logMe "Successfully deleted file / directory: $dir"

@@ -1,82 +1,95 @@
 #!/bin/zsh
 #
-# Main Library
+# RemoveOffice
 #
 # by: Scott Kendall
 #
 # Written: 04/27/2025
-# Last updated: 04/27/2025
+# Last updated: 03/23/2026
 #
 # Script Purpose:  Purpose: Completely remove MS Office Products from users mac
 #
 # 1.0 - Initial
 # 1.1 - Code optimization
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.3 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
+# 1.4	Add removal for Teams
+# 1.5 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Changed to new office Icon
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="RemoveOffice"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Microsoft Office"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/RemoveOffice.log"
-SD_ICON_FILE="/Applications/Microsoft Word.app"
-TSD_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
-OVERLAY_ICON="SF=trash.fill,color=black,weight=light"
-ContainersPath="${USER_DIR}/Library/Containers/"
-GroupContainersPath="${USER_DIR}/Library/Group Containers/"
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Microsoft Office"
+SD_ICON_FILE="https://usw2.ics.services.jamfcloud.com/icon/hash_8bf6549c22de3db831aafaf9c5c02d3aa9a928f4abe377eb2f8cbeab3959615c"
+TSD_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
+OVERLAY_ICON="SF=trash.fill,color=black"
 
 ##################################################
 #
 # Passed in variables
 # 
 #################################################
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
-LOG_TO_VIEW=${4:-"/var/log/system.log"} 
+ContainersPath="${USER_DIR}/Library/Containers/"
+GroupContainersPath="${USER_DIR}/Library/Group Containers/"
 
 ####################################################################################################
 #
@@ -91,7 +104,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -110,7 +124,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -143,12 +156,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -161,10 +174,10 @@ function create_infobox_message()
 
 	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -172,7 +185,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+	exit $1
 }
 
 function display_welcome_msg ()
@@ -183,15 +196,11 @@ function display_welcome_msg ()
 "
     messagebody+="of the office products.
 "
-    messagebody+="* Microsoft Word
-"
-    messagebody+="* Microsoft Excel
-"
-    messagebody+="* Microsoft Outlook
-"
-    messagebody+="* Microsoft Powerpoint
-
-"
+    messagebody+="* Microsoft Word<br>"
+    messagebody+="* Microsoft Excel<br>"
+    messagebody+="* Microsoft Outlook<br>"
+    messagebody+="* Microsoft Powerpoint<br>"
+    messagebody+="* Microsoft Teams<br><br>"
     messagebody+="The entire suite can be reinstalled from Self Service."
 
 	MainDialogBody=(
@@ -199,6 +208,7 @@ function display_welcome_msg ()
         --titlefont shadow=1
 		--ontop
 		--icon "${SD_ICON_FILE}"
+        --iconsize 256
 		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
@@ -230,6 +240,7 @@ function delete_files ()
         "/Applications/Microsoft Powerpoint.app"
         "/Applications/Microsoft Excel.app"
         "/Applications/Microsoft Outlook.app"
+        "/Applications/Microsoft Teams.app"
         "${ContainersPath}com.microsoft.excel"
         "${ContainersPath}com.microsoft.Outlook"
         "${ContainersPath}com.microsoft.Outlook.CalendarWidget"
@@ -246,6 +257,17 @@ function delete_files ()
 		"${GroupContainersPath}UBF8T346G9.ms"
 		"${GroupContainersPath}UBF8T346G9.Office"
 		"${GroupContainersPath}UBF8T346G9.OfficeOsfWebHost"
+        "${USER_DIR}/Library/Caches/com.microsoft.teams"
+        "${USER_DIR}/Library/Caches/com.microsoft.teams.shipit"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/Application Cache/Cache"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/blob_storage"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/Cache"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/databases"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/GPUCache"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/IndexedDB"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/Local Storage"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/tmp"
 	) { [[ -e "${CleanUp_Path}" ]] && { logMe "Cleaning up: ${CleanUp_Path}" ; /bin/rm -rf "${CleanUp_Path}" ; }}
 
 }

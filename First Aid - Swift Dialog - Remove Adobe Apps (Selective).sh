@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 08/01/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
@@ -17,43 +17,47 @@
 # 1.5 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.6 - Modified section headers for better organization
 # 1.7 - Fix line #468 to force check lowercase parameter
+# 1.8 - Added option to allow deletion of current year / fixed Bridge 2025 version #
+# 1.9 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
+# 1.10- Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
 #
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="RemoveAdobeApps"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
-# Temp files used by this app
-TMP_FILE_STORAGE=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
-JSON_OPTIONS=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
+# Make some temp files
+
+TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 chmod 666 ${JSON_OPTIONS}
 chmod 666 ${JSON_DIALOG_BLOB}
 chmod 666 ${DIALOG_COMMAND_FILE}
@@ -61,23 +65,34 @@ chmod 666 ${TMP_FILE_STORAGE}
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
-# Display items (banner / icon / help icon, etc)
+# Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Adobe Apps"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-SD_INFO_BOX_MSG=""
 SD_ICON_FILE="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
 OVERLAY_ICON="SF=trash.fill, color=black, weight=light"
+
 HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 # Trigger installs for Images & icons
@@ -99,6 +114,7 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 ADOBE_CURRENT_YEAR=$4
 SCRIPT_METHOD="${5:-"Prompt"}"                  # 'Silent' or 'Prompt'
 REMOVAL_METHOD="${6:-"All"}"                    # 'All' or 'CConly'
+DELETE_CURRENT_YEAR="${7:-"no"}"                # Yes or No - protect current year from being removed
 
 ####################################################################################################
 #
@@ -165,17 +181,17 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which AdobeUninstaller) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${ADOBE_SUPPORT_FILE}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which AdobeUninstaller) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${ADOBE_SUPPORT_FILE}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
-function create_infobox_message ()
+function create_infobox_message()
 {
 	################################
 	#
@@ -185,10 +201,10 @@ function create_infobox_message ()
 
 	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -355,13 +371,12 @@ function update_display_list ()
 
 function display_welcome_message ()
 {
-    message="The below listed Adobe applications are installed on your system.  You can remove any of previously installed products. _NOTE: You cannot remove the most recently installed version._<br>"
-    [[ $ADOBE_CURRENT_YEAR -ne $adobeLatestYearFound ]] && message+="<br><br>**NOTE:  Creative Cloud $ADOBE_CURRENT_YEAR is available at this time for installation.**"
+    message="The below listed Adobe applications are installed on your system.  You can remove any of previously installed products. :red[IMPORTANT: You cannot remove the most recently installed version.]<br>"
+    [[ $ADOBE_CURRENT_YEAR -ne $adobeLatestYearFound ]] && message+="<br><br>:blue[NOTICE:  Creative Cloud $ADOBE_CURRENT_YEAR is available at this time for installation.]"
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
         --titlefont shadow=1
-        --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
@@ -371,15 +386,16 @@ function display_welcome_message ()
         --width 900
         --height 700
         --ignorednd
-        --moveable
-        --json
         --jsonfile "${JSON_OPTIONS}"
         --quitkey 0
         --button1text "Next"
         --button2text "Cancel"
         --infobutton 
         --infobuttontext "Get Help" 
-        --infobuttonaction "${HELP_DESK_TICKET}" 
+        --infobuttonaction "${HELP_DESK_TICKET}"
+        --ontop
+        --moveable
+        --json
     )
 
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -435,7 +451,7 @@ function create_file_list ()
 
     # If you want to remove all files (3D & CC) then use first find, otherwise find only CC apps
     if [[ "${REMOVAL_METHOD:l}" == "all" ]]; then
-        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe XD$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
+        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
     else
         find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -E '[0-9]{4}$' | sort > $TMP_FILE_STORAGE
     fi
@@ -458,8 +474,9 @@ function create_file_list ()
         version=$(extract_version_code $appPath $baseCode)
 
         # Don't allow the last found year to be removed
-        [[ $app == *$adobeLatestYearFound* ]] && {checked="false"; disabled="true"; } || {checked="true"; disabled="false"; }
-
+        if [[ "${DELETE_CURRENT_YEAR:l}" == "no" ]]; then 
+            [[ $app == *$adobeLatestYearFound* ]] && {checked="false"; disabled="true"; } || {checked="true"; disabled="false"; }
+        fi
         create_checkbox_message_body "$app" "$appPath" "$checked" "$disabled"
         # If you want to show the baseCode & version # found, the uncomment this line
 
@@ -590,7 +607,7 @@ function extract_version_code ()
             version="14.0.0"
             ;;
         *"Bridge 2025"* )
-            version="14.0.0"
+            version="15.1.1"
             ;;
         *"3D Sampler"* )
             version="3.0.0"
@@ -896,7 +913,6 @@ function remove_apps_prompt ()
         appPath=$(resolve_app_path $app)
         baseCode=$(extract_base_code_from_json $app)
         version=$(extract_version_code $appPath $baseCode)
-        echo $version
         update_display_list "change" "Remove $app" "wait" "Working..." "Removing $app" $((100*app_count/total_apps))
         logMe "Removing $app [$baseCode#$version]"
 

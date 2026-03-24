@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/18/2025
-# Last updated: 02/03/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: Escrow a users bootstrap token to the server if it isn't already.
 # Based off of script by: Robert Schroeder
@@ -20,7 +20,11 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
-# 1.4 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 1.4 - Had to increase window height for Tahoe & SD v3.0
+# 1.5 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+##       Optimized "Common" section for better performance
+##       Fixed variable names in the defaults file section
+
 
 ######################################################################################################
 #
@@ -29,10 +33,8 @@
 ######################################################################################################
 
 SCRIPT_NAME="EscrowBootStrap"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
@@ -47,6 +49,9 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -66,7 +71,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -80,9 +85,6 @@ SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Escrow Bootstrap Token"
 SD_INFO_BOX_MSG=""
 SD_ICON_FILE=${ICON_FILES}"LockedIcon.icns"
 SUPPORT_INFO="TSD_Mac_Support@gianteagle.com"
-
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 ##################################################
 #
@@ -158,12 +160,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -212,7 +214,7 @@ function display_msg ()
         --titlefont shadow=1
         --infobox "${SD_INFO_BOX_MSG}"
         --position "center"
-        --height 450
+        --height 480
 		--width 760
 		--quitkey 0
         --moveable
@@ -278,14 +280,24 @@ function get_users_password ()
 
     # Display a prompt for the user to enter their password
 
-    display_msg "## Bootstrap token\n\nYour Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.\n\n Please enter your Mac password to store your Bootstrap token." "password" "OK" "caution"
+    display_msg "## Bootstrap token
+
+Your Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.
+
+ Please enter your Mac password to store your Bootstrap token." "password" "OK" "caution"
 
     until /usr/bin/dscl /Search -authonly "$LOGGED_IN_USER" "${userPass}" &>/dev/null; do
         (( TRY++ ))
-        display_msg "## Bootstrap token\n\nYour Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.\n\n ### Password Incorrect please try again:" "password" "OK" "caution"
+        display_msg "## Bootstrap token
+
+Your Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.
+
+ ### Password Incorrect please try again:" "password" "OK" "caution"
         if (( TRY >= $maxTry )); then
             logMe "Stopping after failed attempts for password entry"
-            display_msg "## Please check your password and try again.\n\nIf issue persists, please contact support @ $SUPPORT_INFO."  "message" "Done" "warning" "No"
+            display_msg "## Please check your password and try again.
+
+If issue persists, please contact support @ $SUPPORT_INFO."  "message" "Done" "warning" "No"
             cleanup_and_exit 1
         fi
     done
@@ -301,9 +313,9 @@ function escrow_token_to_server ()
     result=$(expect -c "
     spawn profiles install -type bootstraptoken
     expect \"Enter the admin user name:\"
-    send ${LOGGED_IN_USER}\r
+    send ${LOGGED_IN_USER}
     expect \"Enter the password for user ${LOGGED_IN_USER}:\"
-    send '${userPass}'\r
+    send '${userPass}'
     expect eof
     ")
 

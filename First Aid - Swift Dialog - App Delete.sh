@@ -4,7 +4,7 @@
 # Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
 # Written: 8/3/2022
-# Last updated: 02/03/2026
+# Last updated: 01/07/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -19,7 +19,11 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
-# 2.3 - Optimized "Common" for faster performance / take advantage of the defaults file
+# 2.3 - Add logic in the delete_files section to not continue processing if name is blank
+#		Fixed issue with reading in the defaults file and setting the variables.
+# 2.4	Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
 ######################################################################################################
 #
 # Global "Common" variables
@@ -27,10 +31,8 @@
 ######################################################################################################
 
 SCRIPT_NAME="AppDelete"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
@@ -60,7 +62,7 @@ TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 # App Specific variables (Feel free to change these)
 #
 ###################################################
-   
+
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
@@ -71,7 +73,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -181,12 +183,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
@@ -225,7 +227,8 @@ function build_file_list_array ()
 	declare -a tmp_array
 	declare saved_IFS=$IFS
 
-	IFS=$'\n'
+	IFS=$'
+'
 	FILES_LIST=( $(/usr/bin/find /Applications/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{print $NF}' | /usr/bin/awk -F '.app' '{print $1}') )
 	IFS=$saved_IFS
 
@@ -321,9 +324,11 @@ function read_in_file_contents ()
 	while read -r line; do
 		name=$( echo "${line}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
 		if [[ -e "/Applications/${name}.app" ]]; then
-			messagebody+="- ${name}  \n"
+			messagebody+="- ${name}  
+"
 		elif [[ -d "/Applications/${name}" ]]; then
-			messagebody+="- Folder: ${name}  \n"
+			messagebody+="- Folder: ${name}  
+"
 		fi
 	done < "${TMP_FILE_STORAGE}"
 }
@@ -331,7 +336,9 @@ function read_in_file_contents ()
 function show_final_delete_prompt ()
 {
 	MainDialogBody=(
-		--message "Are you sure you want to delete these applications?\n\n${messagebody}"
+		--message "Are you sure you want to delete these applications?
+
+${messagebody}"
 		--icon "${SD_ICON_FILE}"
 		--overlayicon warning
 		--height 500
@@ -358,20 +365,25 @@ function delete_files ()
 {
 	while read -r line; do
 		name=$( echo "${line}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
-		if [[ -n "${name}" ]] && [[ -e "/Applications/${name}.app" ]]; then
-			/bin/rm -rf "/Applications/${name}.app"
-			logMe "Removed application: ${name}"
-		elif [[ -d "/Applications/${name}" ]]; then
-			/bin/rm -rf "/Applications/${name}"
-			logMe "Removed Folder: ${name}"
-		fi
+		# don't process if $name is blank
+		[[ -z "$name" ]] && continue
+        if [[ -d "/Applications/${name}.app" ]]; then
+            /bin/rm -rf "/Applications/${name}.app"
+            logMe "Removed application: ${name}"
+        elif [[ -d "/Applications/${name}" ]]; then
+            # .app bundles are technically directories, so this only runs if the .app check fails
+            /bin/rm -rf "/Applications/${name}"
+            logMe "Removed Folder: ${name}"
+        fi
 	done < "${TMP_FILE_STORAGE}"
 }
 
 function show_completed_prompt ()
 {
 	MainDialogBody=(
-		--message "The following application(s) have been deleted.<br><br>${messagebody}\n\nIf you need to delete more files, you can choose \"Run Again\" below."
+		--message "The following application(s) have been deleted.<br><br>${messagebody}
+
+If you need to delete more files, you can choose \"Run Again\" below."
 		--ontop 
 		--icon "${SD_ICON_FILE}"
 		--titlefont shadow=1

@@ -1,52 +1,98 @@
 #!/bin/zsh
+#
+# MigrateUserAccount
+#
+# by: Scott Kendall
+#
+# Written: 02/01/2025
+# Last updated: 03/13/2026
+#
+# Script Purpose: Change the name of the user folder and migrate data to new folder
+#
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistent with all apps
+# 1.2 - changed the 'create_welcome_dialog' function to use JSON output and parse info differently
+# 1.3 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
+# 1.4 - Had to increase window height for Tahoe & SD v3.0
+# 1.4 - Fixed window layout for Tahoe & SD v3.0
+# 1.5 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/local/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="MigrateUserAccount"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+
 # Swift Dialog version requirements
+
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.4.0"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-STOP_ICON="${ICON_FILES}AlertStopIcon.icns"
-GROUP_ICON="${ICON_FILES}GroupIcon.icns"
-SUCCESS_ICON="${ICON_FILES}Toolbarinfo.icns"
-
-JSON_OPTIONS=$(mktemp /var/tmp/MigrateAccount.XXXXX)
-chmod 666 "${JSON_OPTIONS}"
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/MigrateAccount.XXXXX)
-chmod 666 "${DIALOG_COMMAND_FILE}"
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_INFO_BOX_MSG=""
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Migrate Account"
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$MigrateUserAccount.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/#MigrateUserAccount.XXXXX)
+chmod 666 "${JSON_OPTIONS}"
+chmod 666 "${DIALOG_COMMAND_FILE}"
 
 USERS_ON_SYSTEM=$( dscl . ls /Users | grep -v '_' | grep -v 'root' | grep -v 'daemon'| grep -v 'nobody'| grep -v $LOGGED_IN_USER | tr '
 ' ',' )
 USERS_ON_SYSTEM=${USERS_ON_SYSTEM:0:-1} # remove the last , from the list so it doesn't create a blank SD entry
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Migrate Account"
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+STOP_ICON="${ICON_FILES}AlertStopIcon.icns"
+GROUP_ICON="${ICON_FILES}GroupIcon.icns"
+SUCCESS_ICON="${ICON_FILES}Toolbarinfo.icns"
 
 ##################################################
 #
@@ -54,7 +100,7 @@ USERS_ON_SYSTEM=${USERS_ON_SYSTEM:0:-1} # remove the last , from the list so it 
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
@@ -70,7 +116,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -89,7 +136,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -122,12 +168,28 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+}
+
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function update_display_list ()
@@ -309,32 +371,33 @@ function cleanup_and_exit ()
 function create_welcome_dialog ()
 {
 
-	DialogBody=(
+	MainDialogBody=(
         --message "Please enter the following information below. During this process, the data from the old user will be moved to the new user"
 		--ontop
 		--icon "${GROUP_ICON}"
 		--overlayicon computer
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --textfield "Enter the name of the NEW user,required"
         --selecttitle "Select user to migrate FROM",required --selectvalues "${USERS_ON_SYSTEM}"
         --width 800
         --ignorednd
+        --json
         --moveable
 		--quitkey 0
 		--button1text "OK"
         --button2text "Cancel"
     )
 
-    # Example of appending items to the display array
-    #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && DialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
-
-	returnval=$("${SW_DIALOG}" "${DialogBody[@]}" 2>/dev/null)
+	returnval=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     [[ "$?" == "2" ]] && cleanup_and_exit "Good"
 
-    oldUser=$(echo $returnval | grep "SelectedOption" | awk '{print $3}' | tr -d '"' | xargs )
-    newUser=$(echo $returnval | grep "NEW" | awk -F ":" '{print $2}' | xargs )
+    oldUser=$(echo $returnval | grep "SelectedOption" | awk '{print $3}' | tr -d '",' | xargs )
+    newUser=$(echo $returnval | grep "NEW" | awk -F ":" '{print $2}' | tr -d '",' | xargs )
+    
 }
+
 
 function create_workflow_dialog ()
 {
@@ -368,16 +431,13 @@ function test_root_user ()
     	MainDialogBody=(
         --message "In order for this script to function properly, it must be run as an admin user!"
 		--ontop
-		--icon "$STOP_ICON"
-		--overlayicon computer
+		--icon computer
+		--overlayicon "$STOP_ICON"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
 		--button1text "OK"
     )
-
-        # Example of appending items to the display array
-        #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
-
     	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 		cleanup_and_exit "Fail"
 	fi
@@ -445,7 +505,7 @@ function verify_account_info ()
     while [[ "${loginCheck}" ]]; do
         update_display_list "infotext" "${oldUser} account logged in. Logging user off to complete username update."
         sudo launchctl bootout gui/$(id -u ${oldUser})
-        Sleep 5
+        sleep 5
         loginCheck=$(ps -Ajc | grep ${oldUser} | grep loginwindow | awk '{print $2}')
         timeoutCounter=$((${timeoutCounter} + 1))
         if [[ ${timeoutCounter} -eq 4 ]]; then

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Reset InTune/Jamf integration. Removes all files and keychain items.
-# Updated by Scott Kendall
-# Last update 02/03/2026
+# Updated by Patrick Gallagher
+# Last update 07/11/2025
 
 jamfTrigger="install_mscompanyportal"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )

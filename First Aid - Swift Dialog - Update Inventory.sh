@@ -5,40 +5,40 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 06/03/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: Perform the JAMF Recon command with Swift Dialog feedback
 #
 # 1.0 - Initial
+# 1.1 - Bumped SD to v2.5.0
+# 1.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
+SCRIPT_NAME="DialogInventory"
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
 
 SD_WINDOW_TITLE="Update Inventory"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="/Applications/Self Service.app"
-TMP_LOG_FILE=$(mktemp /var/tmp/DialogInventory.XXXXX)
-DIALOG_CMD_FILE=$(mktemp /var/tmp/DialogInventory.XXXXX)
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/DialogInventory.XXXXX)
+
+TMP_LOG_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+DIALOG_CMD_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 chmod 655 $DIALOG_CMD_FILE
 chmod 655 $JSON_DIALOG_BLOB
 
@@ -72,7 +72,7 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function update_display_list ()
@@ -155,6 +155,16 @@ function update_inventory ()
     wait
 } >> "${TMP_LOG_FILE}" 2>&1
 
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -163,6 +173,7 @@ function update_inventory ()
 autoload 'is-at-least'
 
 check_swift_dialog_install
+OVERLAY_ICON=$(JAMF_which_self_service)
 welcomemsg
 
 # Start update inventory
