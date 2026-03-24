@@ -210,11 +210,11 @@ declare DriveMappings
 
 DriveMappings='[
 {"GroupName" : "MACDATA_RW",
-"SMBShare" : "smb://powerscale11inf-smb/apps$/advdata/macdata"},
+"SMBShare" : "smb://<sharename>"},
 {"GroupName" : "COMMON",
-"SMBShare" : "smb://dfs10INF1.corp.gianteagle.com/common"},
+"SMBShare" : "smb://<sharename>"},
 {"GroupName" : "CLIENT TECHNOLOGIES",
-"SMBShare" : "smb://dfs11inf2.corp.gianteagle.com/clientserver"}
+"SMBShare" : "smb://<sharename>"}
 ]'
 
 check_logged_in_user
