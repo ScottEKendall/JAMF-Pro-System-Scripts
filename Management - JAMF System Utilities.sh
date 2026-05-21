@@ -193,7 +193,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
     [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
@@ -1546,7 +1546,8 @@ function create_vcf_cards ()
     if [[ $menu_composeEmail == "true" ]]; then
         email_address=$(cat ${location_Contacts}/contacts.txt)
         # Create a mailto link to open in Outlook with the email addresses
-        email_clean=$(echo "$email_address" | tr -d '' | tr -d '
+        email_clean=$(echo "$email_address" | tr -d '
+' | tr -d '
 ')
         /usr/bin/open -b "${EMAIL_APP}" 'mailto:'${email_clean}'?subject=Subject&body=Type your message here'
     fi
