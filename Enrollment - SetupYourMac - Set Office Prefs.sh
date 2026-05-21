@@ -1,4 +1,4 @@
-#!/bin/zdsh
+#!/bin/zsh
 
 LOGGED_IN_USER=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }')
 PLIST="/Users/$LOGGED_IN_USER/Library/Preferences/com.microsoft.office.plist"
