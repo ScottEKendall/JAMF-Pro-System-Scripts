@@ -51,10 +51,8 @@ done
 /usr/sbin/pkgutil --forget com.microsoft.CompanyPortalMac
 
 passwordItemAccounts_Array=(
-  'com.microsoft.workplacejoin.thumbprint'
   'com.microsoft.workplacejoin.registeredUserPrincipalName'
   'com.microsoft.workplacejoin.deviceName'
-  'com.microsoft.workplacejoin.thumbprint'
   'com.microsoft.workplacejoin.deviceOSVersion'
   'com.microsoft.workplacejoin.discoveryHint'
 )
